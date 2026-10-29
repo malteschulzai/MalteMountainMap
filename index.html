@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1b2420">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Malte Mountain Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen map app. Header, 3D map filling the rest, bottom sheet on phones / right sidebar on wide screens. */
+:root{
+  --bg:#eef1ee; --panel:#ffffff; --ink:#1b2420; --muted:#5a665f; --line:#d6ddd8;
+  --accent:#1d4ed8; --accent-ink:#ffffff; --chip:#e6ebe7;
+  --sky-top:#bfd3e0; --sky-bottom:#eef2ef;
+  --s30:#f2d23a; --s35:#ee8a2b; --s40:#d7301f; --s45:#7b2d8e;
+  --font-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --font-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --panel:#181f1b; --ink:#e6ece8; --muted:#97a39c; --line:#2a3530;
+  --accent:#7d9bff; --accent-ink:#0c1430; --chip:#222b26;
+  --sky-top:#0f1a22; --sky-bottom:#25313a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --panel:#181f1b; --ink:#e6ece8; --muted:#97a39c; --line:#2a3530;
+  --accent:#7d9bff; --accent-ink:#0c1430; --chip:#222b26;
+  --sky-top:#0f1a22; --sky-bottom:#25313a; color-scheme:dark}
+
+html,body{height:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;overflow:hidden}
+.app{height:100%;display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:1fr}
+header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);min-width:0}
+.brand{display:flex;flex-direction:column;min-width:0;flex:1}
+.brand h1{margin:0;font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1;text-transform:uppercase}
+.brand span{font-size:12px;color:var(--muted);letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{font:600 14px/1 var(--font-body);border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:8px;padding:10px 12px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn:focus-visible,.chip:focus-visible,.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.map{position:relative;min-height:0;background:linear-gradient(var(--sky-top),var(--sky-bottom) 70%);overflow:hidden;touch-action:none}
+.map canvas{display:block;width:100%;height:100%}
+.labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lbl{position:absolute;left:0;top:0;transform:translate(-50%,-100%);font:600 12px/1.1 var(--font-body);color:#1b2420;white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;display:flex;flex-direction:column;align-items:center}
+.lbl .h{font-weight:500;font-size:11px;color:#3b4640;font-variant-numeric:tabular-nums}
+.lbl.peak::after{content:"";width:0;height:0;border:5px solid transparent;border-bottom:8px solid #1b2420;border-top:0;margin-top:2px}
+.lbl.place{font-family:var(--font-display);font-size:14px;letter-spacing:.06em;text-transform:uppercase}
+.lbl.place::after{content:"";width:6px;height:6px;border-radius:50%;background:#1b2420;margin-top:2px;box-shadow:0 0 0 2px #fff}
+
+.tools{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:12px;display:flex;flex-direction:column;gap:8px}
+.tool{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:700 13px/1 var(--font-display);letter-spacing:.04em;cursor:pointer;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.tool svg{width:20px;height:20px}
+.exag{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.exag input{width:84px;accent-color:var(--accent)}
+.exag output{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;min-width:2.6em}
+.loading{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;font:600 16px var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--panel) 70%,transparent);font-weight:600}
+
+.sheet{background:var(--panel);border-top:1px solid var(--line);max-height:46vh;overflow-y:auto;overscroll-behavior:contain}
+.sheet-inner{display:flex;flex-direction:column;gap:14px;padding-block:12px 16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{font:600 13px/1 var(--font-body);border:1px solid var(--line);background:var(--chip);color:var(--muted);border-radius:999px;padding:8px 12px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+.sec h2{margin:0 0 6px;font:700 13px/1.2 var(--font-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.point{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}
+.point .big{font:600 26px/1 var(--font-display);font-variant-numeric:tabular-nums}
+.point .sub{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;color:#1b2420}
+.hint{font-size:13px;color:var(--muted);margin:0;max-width:65ch}
+.route-head{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.route-head .name{font-weight:600;min-width:0}
+.route-head .tag{font-size:12px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px;margin:10px 0}
+.stat b{display:block;font:600 20px/1.1 var(--font-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.profile{width:100%;overflow:hidden;position:relative}
+.profile svg{display:block;width:100%;height:auto;touch-action:none}
+.profile text{font:11px var(--font-body);fill:var(--muted);font-variant-numeric:tabular-nums}
+.readout{font-size:12px;color:var(--ink);min-height:1.3em;font-variant-numeric:tabular-nums}
+.warn{font-size:13px;color:var(--s40);margin:0}
+.wctl{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:8px;max-width:360px}
+.wctl select{font:500 14px var(--font-body);padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--chip);color:var(--ink);min-width:0}
+.foot{font-size:11px;color:var(--muted);line-height:1.4;max-width:70ch}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+@media (min-width:900px){
+  .app{grid-template-columns:1fr 380px;grid-template-rows:auto 1fr}
+  header{grid-column:1 / -1}
+  .sheet{max-height:none;border-top:0;border-left:1px solid var(--line);grid-row:2;grid-column:2}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>Malte Mountain Map</h1>
+      <span>Nordkette · Laserscan-Gelände 3 m</span>
+    </div>
+    <label class="btn primary" for="gpx">GPX laden</label>
+    <input class="sr" type="file" id="gpx">
+  </header>
+
+  <div class="map" id="map">
+    <div class="loading" id="loading">Gelände wird geladen …</div>
+    <div class="labels" id="labels"></div>
+    <div class="exag"><label for="exag">Überhöhung</label><input type="range" id="exag" min="1" max="2" step="0.1" value="1.3"><output id="exagOut">1,3×</output></div>
+    <div class="tools">
+      <button class="tool" id="view3d" title="Schräge 3D-Ansicht" aria-label="3D-Ansicht">3D</button>
+      <button class="tool" id="view2d" title="Von oben, Norden oben" aria-label="Draufsicht">2D</button>
+      <button class="tool" id="fit" title="Auf Spur zoomen" aria-label="Auf Spur zoomen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
+    <div class="drop" id="drop" hidden>GPX-Datei hier ablegen</div>
+  </div>
+
+  <aside class="sheet">
+    <div class="sheet-inner">
+      <div class="sec">
+        <div class="row" role="group" aria-label="Ebenen">
+          <button class="chip" id="lySlope" aria-pressed="true">Hangneigung</button>
+          <button class="chip" id="lyContour" aria-pressed="true">Höhenlinien</button>
+          <button class="chip" id="lyRoute" aria-pressed="true">Spur</button>
+          <button class="chip" id="lyLabels" aria-pressed="true">Namen</button>
+          <button class="chip" id="lyWinter" aria-pressed="false">Winter</button>
+        </div>
+      </div>
+      <div class="legend" id="legend">
+        <span><i style="background:var(--s30)"></i>30–35°</span>
+        <span><i style="background:var(--s35)"></i>35–40°</span>
+        <span><i style="background:var(--s40)"></i>40–45°</span>
+        <span><i style="background:var(--s45)"></i>über 45°</span>
+      </div>
+
+      <div class="sec" id="winterSec" hidden>
+        <h2>Winter</h2>
+        <div class="wctl">
+          <label for="snowLvl">Schneelage</label>
+          <select id="snowLvl"><option value="0">wenig Schnee</option><option value="1" selected>normaler Winter</option><option value="2">viel Schnee</option></select>
+          <label for="wind">Hauptwind aus</label>
+          <select id="wind"><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
+        </div>
+        <p class="hint">Modellierte, relative Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Keine gemessene Schneehöhe.</p>
+      </div>
+
+      <div class="sec">
+        <h2>Punkt</h2>
+        <div id="pointInfo"><p class="hint">Tippe ins Gelände, um Höhe, Hangneigung und Exposition an dieser Stelle zu sehen.</p></div>
+      </div>
+
+      <div class="sec" id="routeSec">
+        <h2>Spur</h2>
+        <div id="routeInfo"></div>
+      </div>
+
+      <p class="foot">Geländemodell: Land Tirol, data.gv.at (CC BY 4.0), Laserscan, für die App auf 3 m Raster gerechnet. Rinnen und Felsstufen ab etwa 6 m Breite sind sichtbar. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script>
+(async function(){
+"use strict";
+const META={"grid": {"W": 3520, "H": 2456, "x0": 1259913.9967982701, "y1": 5996598.545782, "cell": 4.423527803572923}, "labels": [{"t": "peak", "name": "Frau Hitt", "h": 2270, "lat": 47.30554, "lon": 11.35092}, {"t": "peak", "name": "Hafelekarspitze", "h": 2334, "lat": 47.31284, "lon": 11.38625}, {"t": "place", "name": "Innsbruck", "lat": 47.2683, "lon": 11.3928}], "route": [[11.392805, 47.268258], [11.392805, 47.268689], [11.392805, 47.269121], [11.392805, 47.269552], [11.392646, 47.269983], [11.392646, 47.270415], [11.392487, 47.270846], [11.392487, 47.271278], [11.392487, 47.271709], [11.392487, 47.27214], [11.392487, 47.272572], [11.392487, 47.273003], [11.39217, 47.273435], [11.391852, 47.273866], [11.391375, 47.274297], [11.390739, 47.274621], [11.39058, 47.275052], [11.390421, 47.275484], [11.390103, 47.275915], [11.389785, 47.276346], [11.389785, 47.276778], [11.389785, 47.277209], [11.389467, 47.277641], [11.388991, 47.278072], [11.388355, 47.278503], [11.388355, 47.278935], [11.388991, 47.279366], [11.389308, 47.279797], [11.389467, 47.280229], [11.389626, 47.28066], [11.390103, 47.281091], [11.390103, 47.281523], [11.390103, 47.281954], [11.390103, 47.282385], [11.390262, 47.282817], [11.390421, 47.283248], [11.39058, 47.283679], [11.39058, 47.28411], [11.39058, 47.284542], [11.39058, 47.284973], [11.39058, 47.285404], [11.39058, 47.285836], [11.39058, 47.286267], [11.39058, 47.286698], [11.39058, 47.287129], [11.39058, 47.287561], [11.39058, 47.287992], [11.39058, 47.288423], [11.39058, 47.288855], [11.39058, 47.289286], [11.39058, 47.289717], [11.390421, 47.290148], [11.389944, 47.29058], [11.389626, 47.291011], [11.389308, 47.291442], [11.388673, 47.291873], [11.388514, 47.292305], [11.388514, 47.292736], [11.388196, 47.293167], [11.388037, 47.293598], [11.388037, 47.294029], [11.388514, 47.294461], [11.38915, 47.294892], [11.389626, 47.295323], [11.390103, 47.295754], [11.390262, 47.296185], [11.389944, 47.296617], [11.389785, 47.297048], [11.390421, 47.297479], [11.391057, 47.29791], [11.391693, 47.298341], [11.391693, 47.298773], [11.391693, 47.299204], [11.391693, 47.299635], [11.391534, 47.300066], [11.391375, 47.300497], [11.391057, 47.300928], [11.39058, 47.30136], [11.390262, 47.301791], [11.389626, 47.302114], [11.388991, 47.302438], [11.388355, 47.302761], [11.387878, 47.303192], [11.387878, 47.303623], [11.38756, 47.304054], [11.38756, 47.304485], [11.387242, 47.304917], [11.387083, 47.305348], [11.386765, 47.305779], [11.386447, 47.30621], [11.386129, 47.306641], [11.385812, 47.307072], [11.386129, 47.307503], [11.386606, 47.307934], [11.386606, 47.308366], [11.386447, 47.308797], [11.386288, 47.309228], [11.385971, 47.309659], [11.385812, 47.31009], [11.385653, 47.310521], [11.385335, 47.310952], [11.385017, 47.311383], [11.384381, 47.311814], [11.384063, 47.312245], [11.38454, 47.312676], [11.385176, 47.313], [11.385812, 47.313], [11.386288, 47.312784], [11.386249, 47.312838]]};
+const $=id=>document.getElementById(id);
+const mapEl=$("map"), loadEl=$("loading");
+const tick=msg=>{loadEl.textContent=msg;return new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0)))};
+
+// ---------- Grid: Web-Mercator metres, ~3 m on the ground ----------
+const G=META.grid, W=G.W, H=G.H, R=6378137;
+const mercX=lon=>R*lon*Math.PI/180, mercY=lat=>R*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));
+const lonToX=lon=>(mercX(lon)-G.x0)/G.cell - 0.5;
+const latToY=lat=>(G.y1-mercY(lat))/G.cell - 0.5;
+const xToLon=x=>(G.x0+(x+0.5)*G.cell)/R*180/Math.PI;
+const yToLat=y=>(2*Math.atan(Math.exp((G.y1-(y+0.5)*G.cell)/R))-Math.PI/2)*180/Math.PI;
+const cellAt=y=>G.cell*Math.cos(yToLat(y)*Math.PI/180); // ground metres per cell
+const CELL=cellAt(H/2), U=100, sc=CELL/U;
+const fmt=(n,d=0)=>n.toLocaleString("de-AT",{minimumFractionDigits:d,maximumFractionDigits:d});
+const N=W*H;
+
+// ---------- Load elevation (decimetres, planar predictor, gzip) ----------
+await tick("Gelände wird geladen …");
+const resp=await fetch("data/nordkette-dem.txt"); if(!resp.ok)throw new Error("Geländedaten nicht erreichbar ("+resp.status+")");
+const b64=(await resp.text()).trim(); const bin=atob(b64); const buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+let raw=buf;
+if(buf[0]===0x1f&&buf[1]===0x8b){
+  if(window.DecompressionStream){raw=new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())}
+  else raw=window.pako.ungzip(buf);
+}
+const pred=new Int16Array(raw.buffer,raw.byteOffset,N);
+const dm=new Uint16Array(N); // elevation in decimetres
+for(let y=0;y<H;y++){const o=y*W;
+  for(let x=0;x<W;x++){const k=o+x;
+    if(y===0)dm[k]=x===0?pred[k]:dm[k-1]+pred[k];
+    else if(x===0)dm[k]=dm[k-W]+pred[k];
+    else dm[k]=pred[k]+dm[k-1]+dm[k-W]-dm[k-W-1];
+  }}
+const E=k=>dm[k]*0.1;
+
+// ---------- Terrain analysis ----------
+await tick("Hangneigung wird berechnet …");
+const slope4=new Uint8Array(N);   // slope in quarter degrees (0–63.75°)
+const aspect=new Uint8Array(N), shade=new Uint8Array(N), south=new Uint8Array(N);
+{
+  const az=315*Math.PI/180, alt=45*Math.PI/180;
+  const Lx=Math.sin(az)*Math.cos(alt), Ly=Math.cos(az)*Math.cos(alt), Lz=Math.sin(alt);
+  for(let y=0;y<H;y++){
+    const c8=8*cellAt(y)*10, ym=Math.max(0,y-1)*W, y0=y*W, yp=Math.min(H-1,y+1)*W;
+    for(let x=0;x<W;x++){
+      const xm=Math.max(0,x-1), xp=Math.min(W-1,x+1);
+      const a=dm[ym+xm],b=dm[ym+x],c=dm[ym+xp],d=dm[y0+xm],f=dm[y0+xp],g=dm[yp+xm],h=dm[yp+x],i=dm[yp+xp];
+      const dzdx=((c+2*f+i)-(a+2*d+g))/c8, dzdy=((g+2*h+i)-(a+2*b+c))/c8;
+      const k=y0+x, gr=Math.hypot(dzdx,dzdy);
+      slope4[k]=Math.min(255,Math.round(Math.atan(gr)*720/Math.PI));
+      let asp=Math.atan2(-dzdx,dzdy)*180/Math.PI; if(asp<0)asp+=360;
+      aspect[k]=Math.round(asp/45)%8;
+      south[k]=Math.min(255,Math.max(0,-dzdy)*200);
+      shade[k]=Math.max(0,(-dzdx*Lx+dzdy*Ly+Lz)/Math.sqrt(gr*gr+1))*255;
+    }}
+}
+const slopeAt=k=>slope4[k]/4;
+function elevAt(gx,gy){
+  gx=Math.min(W-1.001,Math.max(0,gx)); gy=Math.min(H-1.001,Math.max(0,gy));
+  const x=Math.floor(gx),y=Math.floor(gy),fx=gx-x,fy=gy-y,k=y*W+x;
+  return 0.1*(dm[k]*(1-fx)*(1-fy)+dm[k+1]*fx*(1-fy)+dm[k+W]*(1-fx)*fy+dm[k+W+1]*fx*fy);
+}
+const idxAt=(gx,gy)=>Math.min(H-1,Math.max(0,Math.round(gy)))*W+Math.min(W-1,Math.max(0,Math.round(gx)));
+
+await tick("Höhenlinien werden gezeichnet …");
+const contour=new Uint8Array(N); // 1 = 20 m, 2 = 100 m
+for(let y=0;y<H-1;y++)for(let x=0;x<W-1;x++){
+  const k=y*W+x, e=dm[k], r=dm[k+1], d=dm[k+W];
+  const b=Math.floor(e/200), br=Math.floor(r/200), bd=Math.floor(d/200);
+  if(b!==br||b!==bd){const lvl=Math.max(b,br,bd)*20; contour[k]=(lvl%100===0)?2:1}
+}
+
+// ---------- Colours ----------
+const HYPS=[[500,[214,222,203]],[1100,[226,230,210]],[1700,[236,233,218]],[2200,[226,222,214]],[2700,[240,240,238]]];
+const HLUT=new Uint8Array(3000*3);
+for(let e=0;e<3000;e++){let c=HYPS[HYPS.length-1][1];
+  if(e<=HYPS[0][0])c=HYPS[0][1]; else for(let i=1;i<HYPS.length;i++){if(e<=HYPS[i][0]){const [e0,c0]=HYPS[i-1],[e1,c1]=HYPS[i],t=(e-e0)/(e1-e0);c=[c0[0]+(c1[0]-c0[0])*t,c0[1]+(c1[1]-c0[1])*t,c0[2]+(c1[2]-c0[2])*t];break}}
+  HLUT[e*3]=c[0];HLUT[e*3+1]=c[1];HLUT[e*3+2]=c[2]}
+const SLOPE_COL=[[242,210,58],[238,138,43],[215,48,31],[123,45,142]];
+const slopeClass=s=>s>=45?3:s>=40?2:s>=35?1:s>=30?0:-1;
+const ASPECTS=["Nord","Nordost","Ost","Südost","Süd","Südwest","West","Nordwest"];
+
+// ---------- Winter model ----------
+// Relative snow distribution from terrain: elevation (snow line), steepness (rock sheds snow),
+// terrain form at gully and slope scale, wind shelter behind edges, and sun on south faces.
+function boxMean(r){ // separable running mean of elevation, metres
+  const tmp=new Float32Array(N), out=new Float32Array(N);
+  for(let y=0;y<H;y++){const o=y*W;let s=0,n=0;
+    for(let x=0;x<Math.min(W,r);x++){s+=dm[o+x];n++}
+    for(let x=0;x<W;x++){const a=x+r,b=x-r-1; if(a<W){s+=dm[o+a];n++} if(b>=0){s-=dm[o+b];n--} tmp[o+x]=s/n}}
+  for(let x=0;x<W;x++){let s=0,n=0;
+    for(let y=0;y<Math.min(H,r);y++){s+=tmp[y*W+x];n++}
+    for(let y=0;y<H;y++){const a=y+r,b=y-r-1; if(a<H){s+=tmp[a*W+x];n++} if(b>=0){s-=tmp[b*W+x];n--} out[y*W+x]=s/n*0.1}}
+  return out;
+}
+let tpi=null; // Int8: <0 hollow/gully, >0 ridge/knoll
+function computeTPI(){
+  tpi=new Int8Array(N);
+  let m=boxMean(7);   // ~45 m window: gullies
+  const t=new Float32Array(N); for(let k=0;k<N;k++)t[k]=(E(k)-m[k])/2.5;
+  m=boxMean(35);      // ~210 m window: slope-scale hollows and ridges
+  for(let k=0;k<N;k++){const v=-(t[k]+(E(k)-m[k])/14);tpi[k]=Math.max(-100,Math.min(100,v*100))}
+}
+const WINDS={N:[0,-1],NO:[1,-1],O:[1,0],SO:[1,1],S:[0,1],SW:[-1,1],W:[-1,0],NW:[-1,-1]};
+const STEPS=[2,4,6,9,13,18,24,32,42,55,70,90]; // cells upwind, up to ~300 m
+let shelter=null, shelterDir=null;
+function computeShelter(dir){
+  shelter=shelter||new Int8Array(N);
+  let [ux,uy]=WINDS[dir]; const l=Math.hypot(ux,uy); ux/=l; uy/=l;
+  const offs=STEPS.map(s=>[Math.round(ux*s),Math.round(uy*s),s]);
+  for(let y=0;y<H;y++){const c10=cellAt(y)*10;
+    for(let x=0;x<W;x++){const k=y*W+x,e0=dm[k];let mx=-1e9;
+      for(let i=0;i<offs.length;i++){const sx=x+offs[i][0],sy=y+offs[i][1];
+        if(sx<0||sy<0||sx>=W||sy>=H)break;
+        const tn=(dm[sy*W+sx]-e0)/(offs[i][2]*c10); if(tn>mx)mx=tn}
+      shelter[k]=mx===-1e9?0:Math.max(-90,Math.min(90,Math.atan(mx)*180/Math.PI));
+    }}
+}
+const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)};
+const snow=new Uint8Array(N); let winterReady=false;
+async function computeWinter(){
+  if(!tpi){await tick("Winter: Geländeformen …");computeTPI()}
+  if(shelterDir!==state.wind){await tick("Winter: Windschatten …");computeShelter(state.wind);shelterDir=state.wind}
+  const L=[1400,1050,750][state.snow];
+  for(let k=0;k<N;k++){
+    const e=E(k), s=slopeAt(k);
+    const fE=smooth(L-150,L+650,e);
+    const fS=1-smooth(38,58,s);
+    const fC=Math.max(0.35,Math.min(1.4,0.82+0.6*tpi[k]/100));
+    const fW=Math.max(0.45,Math.min(1.35,1+shelter[k]/18));
+    const fA=1-0.35*Math.min(1,south[k]/160)*(1-smooth(L+900,L+1700,e));
+    snow[k]=Math.max(0,Math.min(1,fE*fS*fC*fW*fA/1.25))*255;
+  }
+  winterReady=true;
+}
+const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.4?"wenig Schnee":v<0.7?"mittlere Schneelage":"viel Schnee, Mulde oder Triebschnee";
+
+// ---------- Texture ----------
+const tex=document.createElement("canvas"); tex.width=W; tex.height=H;
+const tctx=tex.getContext("2d");
+const img=tctx.createImageData(W,H);
+const state={slope:true,contour:true,route:true,labels:true,winter:false,wind:"NW",snow:1,exag:1};
+let route=null, texture=null, needsRender=true;
+
+async function composeTexture(){
+  if(state.winter&&!winterReady){await computeWinter(); loadEl.hidden=true}
+  const p=img.data;
+  for(let k=0;k<N;k++){
+    const e=Math.min(2999,dm[k]/10|0), sh=shade[k]/255, s=0.42+0.72*sh, sl=slopeAt(k);
+    let r=HLUT[e*3]*s,g=HLUT[e*3+1]*s,b=HLUT[e*3+2]*s;
+    if(sl>40&&e>1000){const t=smooth(40,60,sl);r=r*(1-t)+140*s*t;g=g*(1-t)+132*s*t;b=b*(1-t)+124*s*t}
+    if(state.winter){
+      const a=Math.pow(snow[k]/255,0.7), t=Math.max(0,Math.min(1,(sh-0.15)/0.75));
+      r=r*(1-a)+(172+81*t)*a; g=g*(1-a)+(186+67*t)*a; b=b*(1-a)+(210+44*t)*a;
+    }
+    if(state.slope){const c=slopeClass(sl); if(c>=0){const col=SLOPE_COL[c],a=state.winter?0.5:0.6;r=r*(1-a)+col[0]*a;g=g*(1-a)+col[1]*a;b=b*(1-a)+col[2]*a}}
+    if(state.contour&&contour[k]){const a=contour[k]===2?0.6:0.22;r=r*(1-a)+92*a;g=g*(1-a)+70*a;b=b*(1-a)+52*a}
+    const j=k*4;p[j]=r;p[j+1]=g;p[j+2]=b;p[j+3]=255;
+  }
+  tctx.putImageData(img,0,0);
+  if(state.route&&route){
+    tctx.lineJoin="round";tctx.lineCap="round";
+    tctx.beginPath();route.pts.forEach((q,i)=>{if(i===0)tctx.moveTo(q.gx,q.gy);else tctx.lineTo(q.gx,q.gy)});
+    tctx.strokeStyle="rgba(255,255,255,.95)";tctx.lineWidth=9;tctx.stroke();
+    tctx.strokeStyle="#1d4ed8";tctx.lineWidth=4.5;tctx.stroke();
+    const ins=route.pts.filter(q=>q.inside);
+    if(ins.length){const s=ins[0],e=ins[ins.length-1];dot(s.gx,s.gy,"#ffffff","#1d4ed8");dot(e.gx,e.gy,"#1d4ed8","#ffffff")}
+  }
+  if(texture)texture.needsUpdate=true;
+  needsRender=true;
+}
+function dot(x,y,fill,stroke){tctx.beginPath();tctx.arc(x,y,9,0,Math.PI*2);tctx.fillStyle=fill;tctx.fill();tctx.lineWidth=3.5;tctx.strokeStyle=stroke;tctx.stroke()}
+
+// ---------- three.js ----------
+await tick("3D-Modell wird aufgebaut …");
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+renderer.setClearColor(0x000000,0);
+mapEl.insertBefore(renderer.domElement,mapEl.firstChild);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(45,1,0.05,1000);
+const controls=new THREE.MapControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=0.12;
+controls.maxPolarAngle=1.38; controls.minDistance=0.6; controls.maxDistance=180;
+controls.screenSpacePanning=false;
+
+const small=Math.min(screen.width,screen.height)<700;
+const STEP=small?4:2;
+const gw=Math.floor((W-1)/STEP)+1, gh=Math.floor((H-1)/STEP)+1;
+const pos=new Float32Array(gw*gh*3), uv=new Float32Array(gw*gh*2);
+for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+  const gx=i*STEP, gy=j*STEP, v=j*gw+i;
+  pos[v*3]=(gx-W/2)*sc; pos[v*3+1]=E(gy*W+gx)/U; pos[v*3+2]=(gy-H/2)*sc;
+  uv[v*2]=(gx+0.5)/W; uv[v*2+1]=1-(gy+0.5)/H;
+}
+const index=new Uint32Array((gw-1)*(gh-1)*6); let n=0;
+for(let j=0;j<gh-1;j++)for(let i=0;i<gw-1;i++){
+  const a=j*gw+i,b=a+1,c=a+gw,d=c+1;
+  index[n++]=a;index[n++]=c;index[n++]=b;index[n++]=b;index[n++]=c;index[n++]=d;
+}
+const geo=new THREE.BufferGeometry();
+geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
+geo.setAttribute("uv",new THREE.BufferAttribute(uv,2));
+geo.setIndex(new THREE.BufferAttribute(index,1));
+geo.computeBoundingSphere(); geo.computeBoundingBox();
+const maxTex=renderer.capabilities.maxTextureSize;
+if(maxTex<Math.max(W,H))console.warn("Texture larger than GPU limit",maxTex);
+texture=new THREE.CanvasTexture(tex);
+texture.anisotropy=renderer.capabilities.getMaxAnisotropy();
+texture.generateMipmaps=true; texture.minFilter=THREE.LinearMipmapLinearFilter;
+if(THREE.sRGBEncoding){texture.encoding=THREE.sRGBEncoding; renderer.outputEncoding=THREE.sRGBEncoding;}
+const terrain=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:texture}));
+terrain.scale.y=state.exag;
+scene.add(terrain);
+
+const marker=new THREE.Group();
+const pin=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,3,8),new THREE.MeshBasicMaterial({color:0x1b2420}));
+pin.position.y=1.5;
+const headM=new THREE.Mesh(new THREE.SphereGeometry(0.45,16,12),new THREE.MeshBasicMaterial({color:0xe11d48}));
+headM.position.y=3;
+marker.add(pin,headM); marker.visible=false; scene.add(marker);
+let lastMarker=null;
+function placeMarker(gx,gy){
+  marker.position.set((gx-W/2)*sc,elevAt(gx,gy)/U*state.exag,(gy-H/2)*sc);
+  const d=camera.position.distanceTo(marker.position);
+  marker.scale.setScalar(Math.max(0.05,Math.min(3,d/40)));
+  marker.visible=true; needsRender=true;
+}
+const gridToWorld=(gx,gy,lift=0)=>new THREE.Vector3((gx-W/2)*sc,elevAt(gx,gy)/U*state.exag+lift,(gy-H/2)*sc);
+
+function lookAt(gx,gy,dist,mode){
+  const t=gridToWorld(gx,gy);
+  controls.target.copy(t);
+  if(mode==="2d") camera.position.set(t.x,t.y+dist,t.z+0.001);
+  else camera.position.set(t.x+dist*0.12,t.y+dist*0.55,t.z+dist*0.83);
+  controls.update(); needsRender=true;
+}
+function routeFrame(){
+  if(!route)return null;
+  const ins=route.pts.filter(q=>q.inside); if(!ins.length)return null;
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; ins.forEach(q=>{x0=Math.min(x0,q.gx);x1=Math.max(x1,q.gx);y0=Math.min(y0,q.gy);y1=Math.max(y1,q.gy)});
+  return {gx:(x0+x1)/2,gy:(y0+y1)/2,dist:Math.max(6,Math.max(x1-x0,y1-y0)*sc*1.7)};
+}
+function fitRoute(mode){const f=routeFrame(); if(f)lookAt(f.gx,f.gy,f.dist,mode); else lookAt(W/2,H/2,90,mode)}
+const targetGrid=()=>[controls.target.x/sc+W/2,controls.target.z/sc+H/2];
+$("view3d").onclick=()=>{const [x,y]=targetGrid();lookAt(x,y,Math.max(4,camera.position.distanceTo(controls.target)),"3d")};
+$("view2d").onclick=()=>{const [x,y]=targetGrid();lookAt(x,y,Math.max(4,camera.position.distanceTo(controls.target)),"2d")};
+$("fit").onclick=()=>fitRoute("3d");
+$("exag").min="1"; $("exag").max="1.6"; $("exag").value="1"; $("exagOut").textContent="1,0×";
+$("exag").oninput=e=>{
+  state.exag=+e.target.value; $("exagOut").textContent=fmt(state.exag,1)+"×";
+  terrain.scale.y=state.exag;
+  if(marker.visible&&lastMarker)placeMarker(lastMarker[0],lastMarker[1]);
+  needsRender=true;
+};
+
+// ---------- labels ----------
+const labelsEl=$("labels");
+const labelNodes=META.labels.map(L=>{
+  const el=document.createElement("div"); el.className="lbl "+L.t;
+  el.innerHTML=L.t==="peak"?`<span>${L.name}</span><span class="h">${fmt(L.h)} m</span>`:`<span>${L.name}</span>`;
+  labelsEl.appendChild(el);
+  return {el,gx:lonToX(L.lon),gy:latToY(L.lat)};
+});
+const v3=new THREE.Vector3();
+function updateLabels(){
+  labelsEl.hidden=!state.labels; if(!state.labels)return;
+  const w=mapEl.clientWidth,h=mapEl.clientHeight;
+  labelNodes.forEach(o=>{
+    v3.copy(gridToWorld(o.gx,o.gy,0.05)).project(camera);
+    const vis=v3.z<1&&v3.x>-1.1&&v3.x<1.1&&v3.y>-1.1&&v3.y<1.1;
+    o.el.style.display=vis?"":"none";
+    if(vis)o.el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) translate(-50%,-100%)`;
+  });
+}
+
+// ---------- tap ----------
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
+let down=null;
+renderer.domElement.addEventListener("pointerdown",e=>{down={x:e.clientX,y:e.clientY,t:performance.now()}});
+renderer.domElement.addEventListener("pointerup",e=>{
+  if(!down)return; const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y), dt=performance.now()-down.t; down=null;
+  if(moved>6||dt>450)return;
+  const r=renderer.domElement.getBoundingClientRect();
+  ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+  ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObject(terrain)[0]; if(!hit)return;
+  const gx=hit.point.x/sc+W/2, gy=hit.point.z/sc+H/2;
+  lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy);
+});
+function slopePill(s){const c=slopeClass(s);if(c<0)return `<span class="pill" style="background:var(--chip);color:var(--muted)">unter 30°</span>`;
+  const names=["30–35°","35–40°","40–45°","über 45°"],bg=["var(--s30)","var(--s35)","var(--s40)","var(--s45)"];
+  return `<span class="pill" style="background:${bg[c]};color:${c>=2?"#fff":"#1b2420"}">${names[c]}</span>`}
+function showPoint(gx,gy){
+  const k=idxAt(gx,gy), e=elevAt(gx,gy), s=slopeAt(k);
+  $("pointInfo").innerHTML=`<div class="point"><span class="big">${fmt(Math.round(e))} m</span><span class="big">${fmt(Math.round(s))}°</span>${slopePill(s)}</div>
+  ${state.winter&&winterReady?`<div class="point"><span class="sub">Winter-Modell: ${snowText(snow[k]/255)}</span></div>`:""}
+  <div class="point"><span class="sub">Exposition ${ASPECTS[aspect[k]]}</span><span class="sub">${fmt(yToLat(gy),5)} N, ${fmt(xToLon(gx),5)} O</span></div>`;
+}
+
+// ---------- routes ----------
+function haversine(a,b){const R6=6371000,toR=Math.PI/180;const dLat=(b.lat-a.lat)*toR,dLon=(b.lon-a.lon)*toR;
+  const s=Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLon/2)**2;return 2*R6*Math.asin(Math.sqrt(s))}
+function setRoute(lonlat,name,tag){
+  const pts=lonlat.map(([lon,lat])=>{const gx=lonToX(lon),gy=latToY(lat);return {lon,lat,gx,gy,inside:gx>=1&&gy>=1&&gx<W-2&&gy<H-2}});
+  const inside=pts.filter(p=>p.inside);
+  if(inside.length<2){
+    route=null; composeTexture();
+    $("routeInfo").innerHTML=`<p class="warn">Diese Spur liegt außerhalb des Kartenausschnitts. Die Testregion reicht von Innsbruck bis zum Nordkettenkamm, etwa von der Frau Hitt bis östlich vom Hafelekar.</p>`;
+    return;
+  }
+  const samples=[]; let dist=0;
+  for(let i=0;i<inside.length;i++){
+    if(i>0){const a=inside[i-1],b=inside[i],d=haversine(a,b),nSub=Math.max(1,Math.ceil(d/10));
+      for(let s=1;s<=nSub;s++){const t=s/nSub;samples.push({d:dist+d*t,gx:a.gx+(b.gx-a.gx)*t,gy:a.gy+(b.gy-a.gy)*t})}
+      dist+=d;
+    } else samples.push({d:0,gx:inside[0].gx,gy:inside[0].gy});
+  }
+  samples.forEach(s=>{s.e=elevAt(s.gx,s.gy); s.s=slopeAt(idxAt(s.gx,s.gy))});
+  let up=0,downH=0,prev=null;
+  for(let i=0;i<samples.length;i++){
+    let sum=0,c=0;for(let j=Math.max(0,i-3);j<=Math.min(samples.length-1,i+3);j++){sum+=samples[j].e;c++}
+    const e=sum/c; if(prev!==null){const d=e-prev; if(d>0)up+=d; else downH-=d} prev=e;
+  }
+  let maxE=-1e9,maxS=0,steep=0;
+  for(let i=0;i<samples.length;i++){const s=samples[i];maxE=Math.max(maxE,s.e);maxS=Math.max(maxS,s.s);
+    if(i>0&&s.s>=30)steep+=s.d-samples[i-1].d}
+  route={name,tag,pts,samples,stats:{dist,up,down:downH,maxE,maxS,steep},partial:inside.length<pts.length};
+  composeTexture(); renderRouteInfo();
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function renderRouteInfo(){
+  const r=route,st=r.stats;
+  const pct=st.dist>0?st.steep/st.dist*100:0;const share=pct===0?"0 %":pct<1?"unter 1 %":fmt(Math.round(pct))+" %";
+  $("routeInfo").innerHTML=`
+   <div class="route-head"><div class="name">${escapeHtml(r.name)}<div class="tag">${escapeHtml(r.tag)}</div></div>
+   <button class="btn" id="clearRoute">Entfernen</button></div>
+   ${r.partial?'<p class="warn">Teile der Spur liegen außerhalb des Kartenausschnitts und werden nicht ausgewertet.</p>':""}
+   <div class="stats">
+     <div class="stat"><b>${fmt(st.dist/1000,1)} km</b><span>Distanz</span></div>
+     <div class="stat"><b>${fmt(Math.round(st.up/10)*10)} Hm</b><span>Aufstieg</span></div>
+     <div class="stat"><b>${fmt(Math.round(st.down/10)*10)} Hm</b><span>Abstieg</span></div>
+     <div class="stat"><b>${fmt(Math.round(st.maxE))} m</b><span>Höchster Punkt</span></div>
+     <div class="stat"><b>${fmt(Math.round(st.maxS))}°</b><span>Steilster Hang</span></div>
+     <div class="stat"><b>${share}</b><span>Strecke ab 30°</span></div>
+   </div>
+   <div class="profile" id="profile"></div>
+   <div class="readout" id="readout">Fahre über das Profil, um die Stelle auf der Karte zu sehen.</div>`;
+  $("clearRoute").onclick=()=>{route=null;composeTexture();$("routeInfo").innerHTML='<p class="hint">Lade eine GPX-Datei, um Profil und Hangneigung entlang der Spur zu sehen.</p>'};
+  drawProfile();
+}
+function niceStep(range,target){const raw=range/target,p=Math.pow(10,Math.floor(Math.log10(raw)));const m=raw/p;return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p}
+function drawProfile(){
+  const box=$("profile"); if(!box||!route)return;
+  const S=route.samples, Wd=Math.max(260,box.clientWidth||320), Hd=150, ml=42, mr=8, mt=8, mb=34, strip=7;
+  const dMax=S[S.length-1].d||1; let eMin=1e9,eMax=-1e9; S.forEach(s=>{eMin=Math.min(eMin,s.e);eMax=Math.max(eMax,s.e)});
+  const ys=niceStep(eMax-eMin||100,4); eMin=Math.floor(eMin/ys)*ys; eMax=Math.ceil(eMax/ys)*ys;
+  const ph=Hd-mt-mb, pw=Wd-ml-mr;
+  const X=d=>ml+d/dMax*pw, Y=e=>mt+ph-(e-eMin)/(eMax-eMin)*ph;
+  let line="",area=`M${X(0)},${mt+ph}`;
+  S.forEach((s,i)=>{const p=`${X(s.d).toFixed(1)},${Y(s.e).toFixed(1)}`;line+=(i?"L":"M")+p;area+="L"+p});
+  area+=`L${X(dMax)},${mt+ph}Z`;
+  let grid="";for(let e=eMin;e<=eMax+0.1;e+=ys){grid+=`<line x1="${ml}" x2="${Wd-mr}" y1="${Y(e)}" y2="${Y(e)}" stroke="var(--line)"/><text x="${ml-6}" y="${Y(e)+4}" text-anchor="end">${fmt(e)}</text>`}
+  const xs=niceStep(dMax/1000,4);let xt="";for(let k=0;k<=dMax/1000+1e-6;k+=xs){xt+=`<text x="${X(k*1000)}" y="${Hd-4}" text-anchor="middle">${fmt(k,xs<1?1:0)} km</text>`}
+  let rects="",run=null;const sy=mt+ph+4;const cols=["var(--s30)","var(--s35)","var(--s40)","var(--s45)"];
+  const seg=(r,dEnd)=>`<rect x="${X(r.d).toFixed(1)}" y="${sy}" width="${Math.max(0.5,X(dEnd)-X(r.d)).toFixed(1)}" height="${strip}" fill="${r.c<0?"var(--chip)":cols[r.c]}"/>`;
+  S.forEach(s=>{const c=slopeClass(s.s);if(!run||run.c!==c){if(run)rects+=seg(run,s.d);run={c,d:s.d}}});
+  if(run)rects+=seg(run,dMax);
+  box.innerHTML=`<svg viewBox="0 0 ${Wd} ${Hd}" role="img" aria-label="Höhenprofil der Spur">
+    ${grid}<path d="${area}" fill="var(--accent)" fill-opacity=".14"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    ${rects}${xt}<line id="cur" x1="0" x2="0" y1="${mt}" y2="${sy+strip}" stroke="var(--ink)" stroke-width="1" visibility="hidden"/>
+    <circle id="curDot" r="4" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/></svg>`;
+  const svg=box.querySelector("svg");
+  const move=e=>{
+    const r=svg.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width*Wd;
+    const d=Math.min(dMax,Math.max(0,(x-ml)/pw*dMax));
+    let lo=0,hi=S.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(S[m].d<d)lo=m;else hi=m}
+    const s=(d-S[lo].d)<(S[hi].d-d)?S[lo]:S[hi];
+    const cur=svg.querySelector("#cur"),dot=svg.querySelector("#curDot");
+    cur.setAttribute("x1",X(s.d));cur.setAttribute("x2",X(s.d));cur.setAttribute("visibility","visible");
+    dot.setAttribute("cx",X(s.d));dot.setAttribute("cy",Y(s.e));dot.setAttribute("visibility","visible");
+    $("readout").textContent=`${fmt(s.d/1000,2)} km · ${fmt(Math.round(s.e))} m · Hang ${fmt(Math.round(s.s))}°`;
+    lastMarker=[s.gx,s.gy]; placeMarker(s.gx,s.gy);
+  };
+  svg.addEventListener("pointermove",move); svg.addEventListener("pointerdown",move);
+}
+function parseGPX(text,fname){
+  const doc=new DOMParser().parseFromString(text,"application/xml");
+  if(doc.querySelector("parsererror"))throw new Error("Die Datei ist kein gültiges GPX (XML-Fehler).");
+  let nodes=[...doc.getElementsByTagName("trkpt")]; if(!nodes.length)nodes=[...doc.getElementsByTagName("rtept")];
+  if(nodes.length<2)throw new Error("In der Datei wurden keine Trackpunkte gefunden.");
+  const ll=nodes.map(n=>[+n.getAttribute("lon"),+n.getAttribute("lat")]).filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  const nm=doc.querySelector("trk > name, rte > name, metadata > name");
+  return {ll,name:(nm&&nm.textContent.trim())||fname.replace(/\.gpx$/i,"")};
+}
+async function loadFile(file){
+  try{const {ll,name}=parseGPX(await file.text(),file.name);
+    setRoute(ll,name,`${fmt(ll.length)} Punkte aus ${file.name}`); if(route)fitRoute("3d");
+  }catch(err){$("routeInfo").innerHTML=`<p class="warn">${escapeHtml(err.message)} Prüfe, ob du eine .gpx-Datei gewählt hast.</p>`}
+}
+$("gpx").addEventListener("change",e=>{const f=e.target.files[0]; if(f)loadFile(f); e.target.value=""});
+let dragDepth=0;
+mapEl.addEventListener("dragenter",e=>{e.preventDefault();dragDepth++;$("drop").hidden=false});
+mapEl.addEventListener("dragover",e=>e.preventDefault());
+mapEl.addEventListener("dragleave",()=>{if(--dragDepth<=0){dragDepth=0;$("drop").hidden=true}});
+mapEl.addEventListener("drop",e=>{e.preventDefault();dragDepth=0;$("drop").hidden=true;const f=e.dataTransfer.files[0];if(f)loadFile(f)});
+
+// ---------- controls ----------
+let busy=false;
+async function rerender(){if(busy)return;busy=true;await composeTexture();busy=false;if(lastMarker)showPoint(lastMarker[0],lastMarker[1])}
+[["lySlope","slope",true],["lyContour","contour",true],["lyRoute","route",true],["lyLabels","labels",false],["lyWinter","winter",true]].forEach(([id,key,tx])=>{
+  $(id).onclick=async()=>{
+    state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
+    $("legend").hidden=!state.slope;$("winterSec").hidden=!state.winter;
+    if(key==="winter"&&state.winter&&!winterReady)loadEl.hidden=false;
+    if(tx)await rerender(); else if(lastMarker)showPoint(lastMarker[0],lastMarker[1]);
+    loadEl.hidden=true; needsRender=true;
+  };
+});
+$("snowLvl").onchange=async e=>{state.snow=+e.target.value;winterReady=false;loadEl.hidden=false;await rerender();loadEl.hidden=true};
+$("wind").onchange=async e=>{state.wind=e.target.value;winterReady=false;loadEl.hidden=false;await rerender();loadEl.hidden=true};
+
+// ---------- start ----------
+await tick("Karte wird gezeichnet …");
+setRoute(META.route,"Beispiel: Innsbruck → Hafelekarspitze","Automatisch berechnete Linie mit möglichst flachem Gelände, keine begangene Tour");
+function resize(){const w=mapEl.clientWidth,h=mapEl.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();needsRender=true;if(route)drawProfile()}
+new ResizeObserver(resize).observe(mapEl); resize();
+{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
+loadEl.hidden=true;
+controls.addEventListener("change",()=>{needsRender=true});
+(function loop(){
+  controls.update();
+  if(needsRender){needsRender=false;renderer.render(scene,camera);updateLabels()}
+  requestAnimationFrame(loop);
+})();
+})().catch(err=>{const l=document.getElementById("loading");if(l){l.hidden=false;l.textContent="Fehler beim Laden: "+err.message}console.error(err)});
+</script>
+
+</body>
+</html>
