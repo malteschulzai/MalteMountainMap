@@ -6,6 +6,7 @@ Funktionen: Luftbild (basemap.at) auf 3D-Gelände mit Nachladen schärferer Kach
 
 ## Daten
 
+- Vegetation (Wald, Latschen): Oberflächenmodell minus Geländemodell vom Land Tirol (CC BY 4.0), auf 6 m zusammengefasst.
 - Luftbild: [basemap.at](https://basemap.at) Orthofoto, CC BY 4.0, direkt als Kacheln geladen.
 - Geländemodell: Land Tirol, [Digitales Geländemodell Tirol](https://www.data.gv.at/katalog/dataset/0454f5f3-1d8c-464e-847d-541901eb021a), CC BY 4.0. Laserscan 50 cm, für die App auf 3 m Raster umgerechnet (Web Mercator, Höhen in Dezimetern, zeilenweise Prädiktor, gzip, Base64).
 

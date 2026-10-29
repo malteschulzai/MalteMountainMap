@@ -37,6 +37,13 @@ for(let y=0;y<H;y++){const o=y*W;
   }}
 buf=raw=null;
 const E=k=>dm[k]*0.1;
+async function loadB64Gz(url){
+  const r=await fetch(url); if(!r.ok)throw new Error("Daten nicht erreichbar ("+r.status+")");
+  const bin=atob((await r.text()).trim()); const b=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);
+  if(b[0]===0x1f&&b[1]===0x8b)return window.DecompressionStream?new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()):window.pako.ungzip(b);
+  return b;
+}
+const vegPromise=META.veg?loadB64Gz("data/nordkette-veg.txt").catch(e=>{console.warn(e);return null}):Promise.resolve(null);
 
 // ---------- Terrain analysis -> data texture (R shade, G slope*4, B snow, A contours) ----------
 await tick("Hangneigung wird berechnet …");
@@ -129,7 +136,7 @@ async function computeWinter(){
     const v=fE*fS*(1+bonus+0.45*form[k]/100+shelter[k]/28-sun);
     data[k*4+2]=smooth(0.22,0.7,v)*255;
   }
-  dataTex.needsUpdate=true; winterKey=key; needsRender=true;
+  dataTex.needsUpdate=true; winterKey=key; shared.bury.value=[0.8,0.55,0.3][state.snow]; needsRender=true;
   loadEl.hidden=true;
 }
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
@@ -156,9 +163,10 @@ const dataTex=new THREE.DataTexture(data,W,H,THREE.RGBAFormat);
 dataTex.magFilter=THREE.LinearFilter; dataTex.minFilter=THREE.LinearFilter; dataTex.generateMipmaps=false;
 dataTex.needsUpdate=true;
 const blank=new THREE.DataTexture(new Uint8Array([128,140,120,255]),1,1,THREE.RGBAFormat); blank.needsUpdate=true;
+function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  globalMap:{value:blank}, dataMap:{value:dataTex}, orthoReady:{value:0},
+  globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, orthoReady:{value:0}, bury:{value:0.55}, grid:{value:new THREE.Vector2(W,H)},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xcfdbe5)},
   fogNear:{value:30}, fogFar:{value:260}
@@ -172,10 +180,12 @@ void main(){
   gl_Position=projectionMatrix*viewMatrix*wp;
 }`;
 const FRAG=`
-uniform sampler2D globalMap, localMap, dataMap;
-uniform float useLocal, orthoReady, mode, showSlope, showContour, winter, fogNear, fogFar;
+uniform sampler2D globalMap, localMap, dataMap, vegMap;
+uniform float useLocal, orthoReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury;
+uniform vec2 grid;
 uniform vec3 camPos, haze;
 varying vec2 vUv; varying vec2 vUv2; varying float vElev; varying vec3 vWorld;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 vec3 hyps(float e){
   vec3 c=mix(vec3(.84,.87,.80),vec3(.89,.90,.82),smoothstep(500.,1100.,e));
   c=mix(c,vec3(.93,.91,.85),smoothstep(1100.,1700.,e));
@@ -183,29 +193,42 @@ vec3 hyps(float e){
   return mix(c,vec3(.94,.94,.93),smoothstep(2200.,2700.,e));
 }
 void main(){
-  vec4 d=texture2D(dataMap,vec2(vUv.x,1.0-vUv.y));
+  vec2 dUv=vec2(vUv.x,1.0-vUv.y);
+  vec4 d=texture2D(dataMap,dUv);
+  vec4 vg=texture2D(vegMap,dUv);
   float shade=d.r, slope=d.g*63.75, snow=d.b, cont=d.a;
+  float tree=vg.r, shrub=vg.a;
+  float light=0.42+0.72*shade;
+  float speck=hash(floor(dUv*grid*1.5));
+  bool ortho = mode<0.5 && (orthoReady>0.5 || useLocal>0.5);
+  float rock=smoothstep(38.,58.,slope)*step(1000.,vElev);
   vec3 col;
-  if(mode<0.5 && (orthoReady>0.5 || useLocal>0.5)){
+  if(ortho){
     col = useLocal>0.5 ? texture2D(localMap,vUv2).rgb : texture2D(globalMap,vUv).rgb;
     col *= mix(1.0, 0.72+0.5*shade, 0.38);
     col = pow(col, vec3(0.95));
   } else {
-    col = hyps(vElev)*(0.42+0.72*shade);
-    float r=smoothstep(40.,60.,slope)*step(1000.,vElev);
-    col = mix(col, vec3(.55,.52,.49)*(0.42+0.72*shade), r);
+    col = hyps(vElev)*light;
+    col = mix(col, vec3(.55,.52,.49)*light, rock);
+    col = mix(col, vec3(.60,.64,.45)*light, shrub*0.75);
+    col = mix(col, vec3(.40,.50,.34)*light*(0.82+0.3*speck), tree*0.9);
   }
   if(winter>0.5){
-    float lum=dot(col,vec3(.299,.587,.114));
-    float forest=0.0;
-    if(mode<0.5){
-      float gdom=col.g-max(col.r,col.b);
-      forest=clamp(gdom*14.0+0.25,0.0,1.0)*smoothstep(0.40,0.18,lum)*(1.0-smoothstep(1900.,2150.,vElev));
+    float shrubOut=shrub*bury;
+    float vis=snow*(1.0-0.82*tree)*(1.0-0.7*shrubOut);
+    vec3 under=col;
+    if(ortho){
+      under=mix(under, under*0.55, tree);
+      vec3 rk=clamp((under-0.45)*1.35+0.36,0.0,1.0);
+      under=mix(under, rk, rock*(1.0-snow));
+    } else {
+      under=mix(under, vec3(.30,.33,.25)*light, shrubOut);
+      under=mix(under, vec3(.13,.19,.15)*(0.75+0.5*speck)*(0.6+0.5*shade), tree);
+      under=mix(under, vec3(.38,.36,.35)*light, rock*(1.0-snow));
     }
-    float a=snow*(1.0-0.72*forest);
-    vec3 snowCol=mix(vec3(.66,.74,.86),vec3(.985,.99,1.0),smoothstep(0.08,0.8,shade));
-    if(mode<0.5) snowCol*=0.93+0.14*clamp(lum*1.6,0.0,1.0);
-    col=mix(col,snowCol,a);
+    vec3 snowCol=mix(vec3(.78,.85,.95), vec3(1.0), smoothstep(0.05,0.68,shade));
+    if(ortho){ float lum=dot(col,vec3(.299,.587,.114)); snowCol*=0.96+0.06*clamp(lum*1.8,0.0,1.0); }
+    col=mix(under, snowCol, vis);
   }
   if(showSlope>0.5 && slope>=30.0){
     vec3 sc = slope>=45.0?vec3(.48,.18,.56):slope>=40.0?vec3(.84,.19,.12):slope>=35.0?vec3(.93,.54,.17):vec3(.95,.82,.23);
@@ -213,9 +236,10 @@ void main(){
   }
   if(showContour>0.5 && cont>0.3){ col=mix(col,vec3(.36,.27,.20),cont>0.75?0.55:0.25); }
   float dist=length(vWorld-camPos);
-  col=mix(col,haze,smoothstep(fogNear,fogFar,dist)*0.7);
+  col=mix(col,haze,smoothstep(fogNear,fogFar,dist)*(winter>0.5?0.55:0.7));
   gl_FragColor=vec4(col,1.0);
 }`;
+
 
 // ---------- Terrain chunks ----------
 const CX=4, CY=4, CW=Math.ceil(W/CX), CH=Math.ceil(H/CY);
@@ -251,6 +275,12 @@ for(let cj=0;cj<CY;cj++)for(let ci=0;ci<CX;ci++){
   chunks.push({mesh,uniforms,gx0,gx1,gy0,gy1,mx0,mx1,my0,my1,z:0,loading:0,want:0});
 }
 terrain.scale.y=state.exag;
+vegPromise.then(v=>{
+  if(!v)return;
+  const vt=new THREE.DataTexture(v,META.veg.W,META.veg.H,THREE.LuminanceAlphaFormat);
+  vt.magFilter=THREE.LinearFilter; vt.minFilter=THREE.LinearFilter; vt.generateMipmaps=false; vt.needsUpdate=true;
+  shared.vegMap.value=vt; needsRender=true;
+});
 
 // ---------- Orthophoto tiles (basemap.at) ----------
 const ORIGIN=20037508.342789244;
@@ -563,7 +593,7 @@ $("wind").onchange=async e=>{state.wind=e.target.value;await computeWinter();app
 
 // ---------- Start ----------
 await tick("Karte wird gezeichnet …");
-setRoute(META.route,"Beispiel: Innsbruck → Hafelekarspitze","Automatisch berechnete Linie mit möglichst flachem Gelände, keine begangene Tour");
+$("routeInfo").innerHTML='<p class="hint">Lade eine GPX-Datei, um Profil und Hangneigung entlang der Spur zu sehen.</p>';
 function resize(){
   const w=mapEl.clientWidth,h=mapEl.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
   routeLines.forEach(l=>l.material.resolution.set(w,h)); needsRender=true; if(route)drawProfile();
