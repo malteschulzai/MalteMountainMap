@@ -274,7 +274,7 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress){
   const jobs=[]; let done=0, ok=0; const total=(tx1-tx0+1)*(ty1-ty0+1);
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++){
     jobs.push(fetchTile(tileUrl(z,tx,ty)).then(bm=>{
-      if(bm){ok++;ctx.drawImage(bm,(tx*tileM-ORIGIN-mx0)/res,(ORIGIN-ty*tileM-my1)/res,256,256);bm.close&&bm.close()}
+      if(bm){ok++;ctx.drawImage(bm,(tx*tileM-ORIGIN-mx0)/res,(my1-(ORIGIN-ty*tileM))/res,256,256);bm.close&&bm.close()}
       done++; onProgress&&onProgress(done/total);
     }));
   }
@@ -427,7 +427,7 @@ function buildRouteLine(){
   const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
   [[0xffffff,7],[0x1d4ed8,4]].forEach(([color,lw],i)=>{
     const g=new THREE.LineGeometry(); g.setPositions(p);
-    const m=new THREE.LineMaterial({color,linewidth:lw,resolution:res,depthTest:true});
+    const m=new THREE.LineMaterial({color,linewidth:lw,resolution:res,depthTest:true,depthWrite:i>0});
     const l=new THREE.Line2(g,m); l.computeLineDistances(); l.renderOrder=1+i; scene.add(l); routeLines.push(l);
   });
   needsRender=true;
