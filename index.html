@@ -45,6 +45,15 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 .status{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:10px;font-size:11px;color:#1b2420;background:rgba(255,255,255,.78);border-radius:6px;padding:4px 7px;pointer-events:none;font-variant-numeric:tabular-nums}
 .rdot{position:absolute;left:0;top:0;width:14px;height:14px;border-radius:50%;border:3px solid #1d4ed8;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-50%);pointer-events:none}
 .rdot.end{background:#1d4ed8;border-color:#fff}
+.map .globe{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:12px;width:68px;height:68px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
+.globe:active{cursor:grabbing}
+.globe:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.pin{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.pin-label{font:600 12px/1 var(--font-body);background:#1b2420;color:#fff;border-radius:6px;padding:4px 7px;margin-bottom:4px;white-space:nowrap;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.pin svg{width:17px;height:40px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
+.rng{display:flex;gap:8px;align-items:center;min-width:0}
+.rng input{flex:1;min-width:0;accent-color:var(--accent)}
+.rng output{font-variant-numeric:tabular-nums;min-width:4.6em;text-align:right;color:var(--ink);font-weight:600}
 .map canvas{display:block;width:100%;height:100%}
 .labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .lbl{position:absolute;left:0;top:0;transform:translate(-50%,-100%);font:600 12px/1.1 var(--font-body);color:#1b2420;white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;display:flex;flex-direction:column;align-items:center}
@@ -114,8 +123,9 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 
   <div class="map" id="map">
     <div class="loading" id="loading">Gelände wird geladen …</div>
-    <div class="labels" id="labels"><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div></div>
+    <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 24 56" aria-hidden="true"><rect x="9" y="1" width="6" height="4.5" rx="1.2" fill="#c79a1c" stroke="#6b5000" stroke-width=".8"/><path d="M9.6 5.5h4.8v7.2c0 3.2 5.1 6.2 5.1 12.3v25.2a4.3 4.3 0 0 1-4.3 4.3H8.8a4.3 4.3 0 0 1-4.3-4.3V25c0-6.1 5.1-9.1 5.1-12.3z" fill="#f4c20d" stroke="#6b5000" stroke-width="1"/><rect x="4.9" y="31" width="14.2" height="11" fill="#fdf6dc" opacity=".9"/><path d="M8 22c.6-3 2.2-5 2.6-8" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div></div>
     <div class="status" id="status">Luftbild: basemap.at</div>
+    <canvas class="globe" id="globe" tabindex="0" role="slider" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Norden oben"></canvas>
     <div class="exag"><label for="exag">Überhöhung</label><input type="range" id="exag" min="1" max="1.6" step="0.1" value="1"><output id="exagOut">1,0×</output></div>
     <div class="tools">
       <button class="tool" id="view3d" title="Schräge 3D-Ansicht" aria-label="3D-Ansicht">3D</button>
@@ -139,7 +149,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
           <button class="chip" id="lyContour" aria-pressed="false">Höhenlinien</button>
           <button class="chip" id="lyRoute" aria-pressed="true">Spur</button>
           <button class="chip" id="lyLabels" aria-pressed="true">Namen</button>
-          <button class="chip" id="lyWinter" aria-pressed="false">Winter</button>
+          <button class="chip" id="lyWinter" aria-pressed="true">Winter</button>
         </div>
       </div>
       <div class="legend" id="legend" hidden>
@@ -149,15 +159,19 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
         <span><i style="background:var(--s45)"></i>über 45°</span>
       </div>
 
-      <div class="sec" id="winterSec" hidden>
+      <div class="sec" id="winterSec">
         <h2>Winter</h2>
         <div class="wctl">
-          <label for="snowLvl">Schneelage</label>
-          <select id="snowLvl"><option value="0">wenig Schnee</option><option value="1" selected>normaler Winter</option><option value="2">viel Schnee</option></select>
+          <label for="snowLvl">Schneemenge</label>
+          <select id="snowLvl"><option value="0">wenig</option><option value="1">normal</option><option value="2" selected>viel</option></select>
+          <label for="lineN">Schneegrenze Nordseite</label>
+          <div class="rng"><input type="range" id="lineN" min="400" max="2600" step="50" value="650"><output id="lineNOut" for="lineN">650 m</output></div>
+          <label for="lineS">Schneegrenze Südseite</label>
+          <div class="rng"><input type="range" id="lineS" min="400" max="2600" step="50" value="950"><output id="lineSOut" for="lineS">950 m</output></div>
           <label for="wind">Hauptwind aus</label>
           <select id="wind"><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
         </div>
-        <p class="hint">Modellierte, relative Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Keine gemessene Schneehöhe.</p>
+        <p class="hint">Modellierte Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Ost- und Westhänge liegen zwischen den beiden Schneegrenzen. Keine gemessene Schneehöhe.</p>
       </div>
 
       <div class="sec">
@@ -183,7 +197,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=5"></script>
-<script src="js/app.js?v=5"></script>
+<script src="data/nordkette-meta.js?v=6"></script>
+<script src="js/app.js?v=6"></script>
 </body>
 </html>
