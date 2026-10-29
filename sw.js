@@ -1,5 +1,5 @@
 // Malte Mountain Map service worker: offline app shell, saved areas, cached map tiles.
-const SHELL="mmm-shell-v9", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
+const SHELL="mmm-shell-v10", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
 const SHELL_FILES=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(SHELL).then(c=>Promise.all(SHELL_FILES.map(u=>c.add(u).catch(()=>{})))).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("mmm-shell-")&&k!==SHELL).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
@@ -22,7 +22,7 @@ self.addEventListener("fetch",e=>{
   if(u.origin===location.origin){
     // network first for the app itself so updates arrive, cache when offline
     e.respondWith((async()=>{
-      try{const r=await fetch(req);if(r.ok){const c=await caches.open(SHELL);c.put(req,r.clone())}return r}
+      try{const r=await fetch(req,{cache:"no-cache"});if(r.ok){const c=await caches.open(SHELL);c.put(req,r.clone())}return r}
       catch(err){return (await caches.match(req))||(await caches.match(req.url,{ignoreSearch:true}))||(await caches.match("index.html"))||Response.error()}
     })());
   }
