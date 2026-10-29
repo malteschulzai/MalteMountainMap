@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#1b2420">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Malte Mountain Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,6 +48,15 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 .rdot.end{background:#1d4ed8;border-color:#fff}
 .map .globe{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:12px;width:68px;height:68px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
 .globe:active{cursor:grabbing}
+.pad{position:absolute;right:calc(max(12px,env(safe-area-inset-right,0px)) + 76px);bottom:8px;display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,38px);grid-template-areas:". u ." "l n r" ". d .";gap:3px}
+.pbtn{border:1px solid rgba(27,36,32,.25);background:rgba(255,255,255,.92);color:#1b2420;border-radius:9px;font:700 14px/1 var(--font-body);cursor:pointer;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,.2);user-select:none;-webkit-user-select:none}
+.pbtn:active{background:#dfe7ee}
+.pbtn.north{background:#d7301f;color:#fff;border-color:#a0220f;font-family:var(--font-display)}
+.pbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lbl.saddle{font-size:11px;font-weight:500;font-style:italic;color:#2d3833}
+.lbl.saddle::after{content:"";width:8px;height:3px;border-radius:2px;background:#2d3833;margin-top:2px}
+.lbl.lift{font-size:11px;color:#14306e}
+.lbl.lift::after{content:"";width:7px;height:7px;background:#1f4ea3;margin-top:2px;box-shadow:0 0 0 2px #fff}
 .globe:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .pin{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;pointer-events:none}
 .pin-label{font:600 12px/1 var(--font-body);background:#1b2420;color:#fff;border-radius:6px;padding:4px 7px;margin-bottom:4px;white-space:nowrap;font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.3)}
@@ -123,9 +133,16 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 
   <div class="map" id="map">
     <div class="loading" id="loading">Gelände wird geladen …</div>
-    <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 24 56" aria-hidden="true"><rect x="9" y="1" width="6" height="4.5" rx="1.2" fill="#c79a1c" stroke="#6b5000" stroke-width=".8"/><path d="M9.6 5.5h4.8v7.2c0 3.2 5.1 6.2 5.1 12.3v25.2a4.3 4.3 0 0 1-4.3 4.3H8.8a4.3 4.3 0 0 1-4.3-4.3V25c0-6.1 5.1-9.1 5.1-12.3z" fill="#f4c20d" stroke="#6b5000" stroke-width="1"/><rect x="4.9" y="31" width="14.2" height="11" fill="#fdf6dc" opacity=".9"/><path d="M8 22c.6-3 2.2-5 2.6-8" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div></div>
+    <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 24 56" aria-hidden="true"><rect x="9" y="1" width="6" height="4.5" rx="1.2" fill="#1f4ea3" stroke="#0f2a5c" stroke-width=".8"/><path d="M9.6 5.5h4.8v7.2c0 3.2 5.1 6.2 5.1 12.3v25.2a4.3 4.3 0 0 1-4.3 4.3H8.8a4.3 4.3 0 0 1-4.3-4.3V25c0-6.1 5.1-9.1 5.1-12.3z" fill="#f5c400" stroke="#8a6400" stroke-width="1"/><rect x="4.9" y="30" width="14.2" height="12.5" fill="#1f4ea3"/><rect x="4.9" y="31.6" width="14.2" height="1" fill="#f5c400" opacity=".9"/><rect x="4.9" y="39.9" width="14.2" height="1" fill="#f5c400" opacity=".9"/><path d="M8 22c.6-3 2.2-5 2.6-8" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div></div>
     <div class="status" id="status">Luftbild: basemap.at</div>
-    <canvas class="globe" id="globe" tabindex="0" role="slider" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Norden oben"></canvas>
+    <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
+    <div class="pad" id="pad" hidden>
+      <button class="pbtn" style="grid-area:u" data-dir="up" aria-label="Steiler von oben">▲</button>
+      <button class="pbtn" style="grid-area:l" data-dir="left" aria-label="Nach links drehen">◀</button>
+      <button class="pbtn north" style="grid-area:n" id="north" aria-label="Norden oben">N</button>
+      <button class="pbtn" style="grid-area:r" data-dir="right" aria-label="Nach rechts drehen">▶</button>
+      <button class="pbtn" style="grid-area:d" data-dir="down" aria-label="Flacher, mehr Horizont">▼</button>
+    </div>
     <div class="exag"><label for="exag">Überhöhung</label><input type="range" id="exag" min="1" max="1.6" step="0.1" value="1"><output id="exagOut">1,0×</output></div>
     <div class="tools">
       <button class="tool" id="view3d" title="Schräge 3D-Ansicht" aria-label="3D-Ansicht">3D</button>
@@ -146,6 +163,8 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
       <div class="sec">
         <div class="row" role="group" aria-label="Ebenen">
           <button class="chip" id="lySlope" aria-pressed="false">Hangneigung</button>
+          <button class="chip" id="lyAspect" aria-pressed="false">Exposition</button>
+          <button class="chip" id="lyTrees" aria-pressed="true">3D-Bäume</button>
           <button class="chip" id="lyContour" aria-pressed="false">Höhenlinien</button>
           <button class="chip" id="lyRoute" aria-pressed="true">Spur</button>
           <button class="chip" id="lyLabels" aria-pressed="true">Namen</button>
@@ -157,6 +176,11 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
         <span><i style="background:var(--s35)"></i>35–40°</span>
         <span><i style="background:var(--s40)"></i>40–45°</span>
         <span><i style="background:var(--s45)"></i>über 45°</span>
+      </div>
+
+      <div class="legend" id="legendAspect" hidden>
+        <span><i style="background:#2952cc"></i>N</span><span><i style="background:#2ea8db"></i>NO</span><span><i style="background:#4db34d"></i>O</span><span><i style="background:#edcc33"></i>SO</span>
+        <span><i style="background:#e04229"></i>S</span><span><i style="background:#db61a8"></i>SW</span><span><i style="background:#8c54c7"></i>W</span><span><i style="background:#38388c"></i>NW</span>
       </div>
 
       <div class="sec" id="winterSec">
@@ -184,7 +208,19 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
         <div id="routeInfo"></div>
       </div>
 
-      <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Geländemodell: Land Tirol, data.gv.at (CC BY 4.0), Laserscan, für die App auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+      <div class="sec">
+        <h2>Offline und App</h2>
+        <p class="hint">Speichert Luftbild, Schummerung und Gelände der Nordkette auf dem Gerät. Danach funktioniert die Karte auch ohne Empfang.</p>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="saveStd">Offline speichern (ca. 60 MB)</button>
+          <button class="btn" id="saveMax">Maximale Schärfe (ca. 200 MB)</button>
+          <button class="btn" id="clearOffline">Löschen</button>
+          <button class="btn primary" id="installBtn" hidden>Als App installieren</button>
+        </div>
+        <p class="hint" id="offlineStatus" style="margin-top:6px" aria-live="polite"></p>
+      </div>
+
+      <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
     </div>
   </aside>
 </div>
@@ -197,7 +233,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=6"></script>
-<script src="js/app.js?v=6"></script>
+<script src="data/nordkette-meta.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
 </body>
 </html>

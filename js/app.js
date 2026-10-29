@@ -2,6 +2,7 @@
 (async function(){
 "use strict";
 const META=window.MMM_META;
+const APPV=(document.querySelector('script[src*="js/app.js"]').src.match(/v=(\d+)/)||[])[1]||"0";
 const $=id=>document.getElementById(id);
 const mapEl=$("map"), loadEl=$("loading"), statusEl=$("status");
 const tick=msg=>{loadEl.textContent=msg;return new Promise(r=>setTimeout(r,20))};
@@ -20,7 +21,7 @@ const small=Math.min(screen.width,screen.height)<700;
 
 // ---------- Elevation ----------
 await tick("Gelände wird geladen …");
-const resp=await fetch("data/nordkette-dem.txt");
+const resp=await fetch("data/nordkette-dem.txt?v="+APPV);
 if(!resp.ok)throw new Error("Geländedaten nicht erreichbar ("+resp.status+")");
 let buf;{const bin=atob((await resp.text()).trim());buf=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i)}
 let raw=buf;
@@ -43,7 +44,8 @@ async function loadB64Gz(url){
   if(b[0]===0x1f&&b[1]===0x8b)return window.DecompressionStream?new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()):window.pako.ungzip(b);
   return b;
 }
-const vegPromise=META.veg?loadB64Gz("data/nordkette-veg.txt").catch(e=>{console.warn(e);return null}):Promise.resolve(null);
+const treesPromise=META.trees?loadB64Gz("data/nordkette-trees.txt?v="+APPV).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
+const vegPromise=META.veg?loadB64Gz("data/nordkette-veg.txt?v="+APPV).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
 
 // ---------- Terrain analysis -> data texture (R shade, G slope*4, B snow, A contours) ----------
 await tick("Hangneigung wird berechnet …");
@@ -144,7 +146,7 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={base:"ortho",slope:false,contour:false,route:true,labels:true,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 let needsRender=true;
 
 // ---------- three.js ----------
@@ -165,10 +167,12 @@ const dataTex=new THREE.DataTexture(data,W,H,THREE.RGBAFormat);
 dataTex.magFilter=THREE.LinearFilter; dataTex.minFilter=THREE.LinearFilter; dataTex.generateMipmaps=false;
 dataTex.needsUpdate=true;
 const blank=new THREE.DataTexture(new Uint8Array([128,140,120,255]),1,1,THREE.RGBAFormat); blank.needsUpdate=true;
+const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[k]*32+16;
+  const t=new THREE.DataTexture(a,W,H,THREE.LuminanceFormat);t.magFilter=THREE.NearestFilter;t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;t.needsUpdate=true;return t})();
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
+  globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xcfdbe5)},
   fogNear:{value:30}, fogFar:{value:260}
@@ -182,7 +186,8 @@ void main(){
   gl_Position=projectionMatrix*viewMatrix*wp;
 }`;
 const FRAG=`
-uniform sampler2D globalMap, localMap, dataMap, vegMap, globalShade, localShade;
+uniform sampler2D globalMap, localMap, dataMap, vegMap, globalShade, localShade, aspectMap;
+uniform float showAspect, treesOn;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
 uniform vec3 camPos, haze;
 varying vec2 vUv; varying vec2 vUv2; varying float vElev; varying vec3 vWorld;
@@ -221,7 +226,7 @@ void main(){
   if(winter>0.5){
     float tr=smoothstep(0.06,0.4,tree), sr=smoothstep(0.06,0.4,shrub);
     float obj = fine ? clamp(abs(so-sg)*3.2-0.07,0.0,1.0) : 0.5;   // something stands above the ground
-    float crownT=obj*tr;
+    float crownT=obj*tr*(1.0-0.85*treesOn);
     if(ortho) crownT=max(crownT, smoothstep(0.30,0.13,olum)*tr);
     float crownS=obj*sr*bury;
     vec3 crownC=mix(vec3(.08,.14,.10)*(0.55+0.95*so), snowCol(so)*0.97, crownSnow*smoothstep(0.48,0.85,so));
@@ -234,6 +239,11 @@ void main(){
     else under=mix(under, vec3(.38,.36,.35)*light, rock);
     float vis=smoothstep(0.12,0.88,clamp(snow+(sg-shade)*0.8,0.0,1.0));
     col=mix(under,w,vis);
+  }
+  if(showAspect>0.5 && slope>=8.0){
+    float a=floor(texture2D(aspectMap,dUv).r*255.0/32.0);
+    vec3 ac = a<0.5?vec3(.16,.32,.80): a<1.5?vec3(.18,.66,.86): a<2.5?vec3(.30,.70,.30): a<3.5?vec3(.93,.80,.20): a<4.5?vec3(.88,.26,.16): a<5.5?vec3(.86,.38,.66): a<6.5?vec3(.55,.33,.78): vec3(.22,.22,.55);
+    col=mix(col,ac,0.5);
   }
   if(showSlope>0.5 && slope>=30.0){
     vec3 sc = slope>=45.0?vec3(.48,.18,.56):slope>=40.0?vec3(.84,.19,.12):slope>=35.0?vec3(.93,.54,.17):vec3(.95,.82,.23);
@@ -272,7 +282,7 @@ for(let cj=0;cj<CY;cj++)for(let ci=0;ci<CX;ci++){
   geo.setAttribute("uvLocal",new THREE.BufferAttribute(uv2,2));
   geo.setIndex(new THREE.BufferAttribute(idx,1));
   geo.computeBoundingSphere(); geo.computeBoundingBox();
-  const uniforms=Object.assign({},shared,{localMap:{value:blank},useLocal:{value:0},localShade:{value:blank},useLocalShade:{value:0}});
+  const uniforms=Object.assign({},shared,{localMap:{value:blank},useLocal:{value:0},localShade:{value:blank},useLocalShade:{value:0},treesOn:{value:0}});
   const mesh=new THREE.Mesh(geo,new THREE.ShaderMaterial({uniforms,vertexShader:VERT,fragmentShader:FRAG,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}));
   terrain.add(mesh);
   // chunk extent in mercator metres (vertex centres)
@@ -287,6 +297,74 @@ vegPromise.then(v=>{
   shared.vegMap.value=vt; needsRender=true;
 });
 
+// ---------- 3D trees (tree tops from laser scan: surface minus terrain) ----------
+const treeGroup=new THREE.Group(); treeGroup.scale.y=state.exag; scene.add(treeGroup);
+let treeData=null; const treeOffsets=[];
+function coneGeo(r,h,y0,seg){
+  const g=new THREE.ConeGeometry(r,h,seg,1,true); g.translate(0,y0+h/2,0); return g.toNonIndexed();
+}
+const treeGeo=(()=>{
+  const parts=[coneGeo(0.5,0.62,0.12,7),coneGeo(0.36,0.5,0.5,7)];
+  let n=0; parts.forEach(p=>n+=p.attributes.position.count);
+  const pos=new Float32Array(n*3), nor=new Float32Array(n*3); let o=0;
+  parts.forEach(p=>{pos.set(p.attributes.position.array,o*3);nor.set(p.attributes.normal.array,o*3);o+=p.attributes.position.count});
+  const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.BufferAttribute(pos,3)); g.setAttribute("normal",new THREE.BufferAttribute(nor,3)); return g;
+})();
+const treeMat=new THREE.ShaderMaterial({
+  uniforms:{winter:shared.winter,crownSnow:shared.crownSnow,camPos:shared.camPos,haze:shared.haze,fogNear:shared.fogNear,fogFar:shared.fogFar},
+  vertexShader:`
+    varying vec3 vN; varying vec3 vW; varying float vR; varying float vY;
+    void main(){
+      mat4 m=modelMatrix*instanceMatrix; vec4 wp=m*vec4(position,1.0); vW=wp.xyz; vY=position.y;
+      vN=normalize(mat3(m)*normal);
+      vR=fract(sin(dot(instanceMatrix[3].xz,vec2(12.9898,78.233)))*43758.5453);
+      gl_Position=projectionMatrix*viewMatrix*wp;
+    }`,
+  fragmentShader:`
+    uniform float winter, crownSnow, fogNear, fogFar; uniform vec3 camPos, haze;
+    varying vec3 vN; varying vec3 vW; varying float vR; varying float vY;
+    void main(){
+      vec3 n=normalize(vN); vec3 L=normalize(vec3(-0.55,0.75,-0.45));
+      float diff=max(dot(n,L),0.0), lit=0.38+0.75*diff;
+      vec3 col=mix(vec3(.09,.17,.11),vec3(.17,.28,.15),vR)*lit*(0.8+0.3*vY);
+      if(winter>0.5){
+        float s=crownSnow*smoothstep(0.0,0.6,n.y+0.45*diff-0.15)*(0.55+0.45*vR);
+        col=mix(col, vec3(.93,.95,1.0)*(0.72+0.3*diff), clamp(s,0.0,0.9));
+      }
+      col=mix(col,haze,smoothstep(fogNear,fogFar,length(vW-camPos))*(winter>0.5?0.55:0.7));
+      gl_FragColor=vec4(col,1.0);
+    }`
+});
+treesPromise.then(b=>{
+  if(!b)return;
+  const n=META.trees.n; treeData={x:new Uint16Array(b.buffer,b.byteOffset,n),y:new Uint16Array(b.buffer,b.byteOffset+2*n,n),h:new Uint8Array(b.buffer,b.byteOffset+4*n,n)};
+  let o=0; META.trees.counts.forEach(c=>{treeOffsets.push([o,c]);o+=c});
+  scheduleLOD();
+});
+const TREE_MAX=small?70000:320000, TREE_DIST=small?20:60;
+const _m=new THREE.Matrix4(), _p=new THREE.Vector3(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(), _up=new THREE.Vector3(0,1,0);
+function buildTrees(ci){
+  const c=chunks[ci]; if(c.trees||!treeData)return;
+  const [o,cnt]=treeOffsets[ci]; if(!cnt)return;
+  const mesh=new THREE.InstancedMesh(treeGeo,treeMat,cnt); mesh.frustumCulled=false;
+  for(let i=0;i<cnt;i++){
+    const gx=treeData.x[o+i]/16, gy=treeData.y[o+i]/16, h=treeData.h[o+i]/4;
+    _p.set((gx-W/2)*sc, elevAt(gx,gy)/U, (gy-H/2)*sc);
+    _q.setFromAxisAngle(_up,(i*2.399)%6.283);
+    const wdt=Math.max(1.6,h*0.38)/U; _s.set(wdt,h/U,wdt);
+    mesh.setMatrixAt(i,_m.compose(_p,_q,_s));
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+  treeGroup.add(mesh); c.trees=mesh; c.uniforms.treesOn.value=state.trees?1:0; needsRender=true;
+}
+function dropTrees(ci){const c=chunks[ci]; if(!c.trees)return; treeGroup.remove(c.trees); c.trees.dispose(); c.trees=null; c.uniforms.treesOn.value=0; needsRender=true}
+function updateTrees(list){
+  if(!treeData)return;
+  let used=0; const want=new Set();
+  if(state.trees)for(const {c,d} of list){const ci=chunks.indexOf(c), cnt=treeOffsets[ci][1]; if(d<TREE_DIST&&used+cnt<=TREE_MAX){want.add(ci);used+=cnt}}
+  chunks.forEach((c,ci)=>{if(want.has(ci))buildTrees(ci);else dropTrees(ci)});
+}
+
 // ---------- Orthophoto tiles (basemap.at) ----------
 const ORIGIN=20037508.342789244;
 const tileUrl=(z,x,y)=>`https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/${z}/${y}/${x}.jpeg`;
@@ -298,6 +376,12 @@ function fetchTile(url){
       catch(e){res(null)} finally{active--; if(queue.length)queue.shift()()}};
     if(active<8)run(); else queue.push(run);
   });
+}
+function orthoUrls(mx0,mx1,my0,my1,z){
+  const tileM=2*ORIGIN/2**z, out=[];
+  const tx0=Math.floor((mx0+ORIGIN)/tileM), tx1=Math.floor((mx1+ORIGIN)/tileM), ty0=Math.floor((ORIGIN-my1)/tileM), ty1=Math.floor((ORIGIN-my0)/tileM);
+  for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++)out.push(tileUrl(z,tx,ty));
+  return out;
 }
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
@@ -319,8 +403,12 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress){
 // fine hillshades (50 cm laser scan) from Land Tirol WMS: terrain -> red, surface -> green
 const WMS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapServer/WMSServer";
 let wmsActive=0; const wmsQueue=[];
+const wmsUrl=(layer,mx0,mx1,my0,my1,w,h)=>`${WMS}?service=WMS&version=1.3.0&request=GetMap&layers=${layer}&styles=&crs=EPSG:3857&bbox=${mx0},${my0},${mx1},${my1}&width=${w}&height=${h}&format=image/jpeg`;
+const SHADE_LAYERS=["Image_Schummerung_Gelaendemodell","Image_Schummerung_Oberflaechenmodell"];
+const clampWH=(w,h)=>[Math.min(w,4096,MAXTEX),Math.min(h,4096,MAXTEX)];
+function shadeUrls(mx0,mx1,my0,my1,w,h){[w,h]=clampWH(w,h);return SHADE_LAYERS.map(l=>wmsUrl(l,mx0,mx1,my0,my1,w,h))}
 function wmsImage(layer,mx0,mx1,my0,my1,w,h){
-  const url=`${WMS}?service=WMS&version=1.3.0&request=GetMap&layers=${layer}&styles=&crs=EPSG:3857&bbox=${mx0},${my0},${mx1},${my1}&width=${w}&height=${h}&format=image/jpeg`;
+  const url=wmsUrl(layer,mx0,mx1,my0,my1,w,h);
   return new Promise(res=>{
     const run=async()=>{wmsActive++;
       try{const r=await fetch(url,{mode:"cors"}); if(!r.ok)throw 0; const b=await r.blob(); if(!/^image/.test(b.type))throw 0; res(await createImageBitmap(b))}
@@ -329,8 +417,8 @@ function wmsImage(layer,mx0,mx1,my0,my1,w,h){
   });
 }
 async function renderShade(mx0,mx1,my0,my1,w,h){
-  w=Math.min(w,4096,MAXTEX); h=Math.min(h,4096,MAXTEX);
-  const [a,b]=await Promise.all([wmsImage("Image_Schummerung_Gelaendemodell",mx0,mx1,my0,my1,w,h),wmsImage("Image_Schummerung_Oberflaechenmodell",mx0,mx1,my0,my1,w,h)]);
+  [w,h]=clampWH(w,h);
+  const [a,b]=await Promise.all(SHADE_LAYERS.map(l=>wmsImage(l,mx0,mx1,my0,my1,w,h)));
   if(!a||!b)return null;
   const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
   const ctx=cv.getContext("2d",{willReadFrequently:true});
@@ -367,8 +455,8 @@ let lodTimer=null;
 function scheduleLOD(){clearTimeout(lodTimer);lodTimer=setTimeout(updateLOD,350)}
 function chunkPixels(c,z){const res=2*ORIGIN/2**z/256;return 2*Math.ceil((c.mx1-c.mx0)/res)*Math.ceil((c.my1-c.my0)/res)}
 function updateLOD(){
-  if(!shared.orthoReady.value&&!shared.shadeReady.value)return;
   const list=chunks.map(c=>({c,d:chunkDist(c)})).sort((a,b)=>a.d-b.d);
+  if(!shared.orthoReady.value&&!shared.shadeReady.value){updateTrees(list);return}
   let used=0;
   for(const {c,d} of list){
     let z=d<14?17:d<45?16:0;
@@ -376,6 +464,7 @@ function updateLOD(){
     if(z)used+=chunkPixels(c,z);
     c.want=z;
   }
+  updateTrees(list);
   for(const c of chunks){
     if(c.want===c.z||c.loading===c.want)continue;
     if(c.want===0){drop(c);continue}
@@ -428,19 +517,21 @@ $("view2d").onclick=()=>{const [x,y]=targetGrid();lookAt(x,y,Math.max(4,camera.p
 $("fit").onclick=()=>fitRoute("3d");
 $("exag").oninput=e=>{
   state.exag=+e.target.value; $("exagOut").textContent=fmt(state.exag,1)+"×";
-  terrain.scale.y=state.exag; buildRouteLine();
+  terrain.scale.y=state.exag; treeGroup.scale.y=state.exag; buildRouteLine();
   if(lastMarker)placeMarker(lastMarker[0],lastMarker[1]);
   needsRender=true;
 };
 
-// ---------- Labels ----------
+// ---------- Labels (OpenStreetMap names), decluttered on screen ----------
 const labelsEl=$("labels");
+const RANK={place:4000,peak:0,lift:-400,saddle:-800};
 const labelNodes=META.labels.map(L=>{
   const el=document.createElement("div"); el.className="lbl "+L.t;
-  el.innerHTML=L.t==="peak"?`<span>${L.name}</span><span class="h">${fmt(L.h)} m</span>`:`<span>${L.name}</span>`;
+  const h=L.h?`<span class="h">${fmt(L.h)} m</span>`:"";
+  el.innerHTML=`<span>${L.name}</span>${L.t==="place"?"":h}`;
   labelsEl.appendChild(el);
-  return {el,gx:lonToX(L.lon),gy:latToY(L.lat)};
-});
+  return {el,gx:lonToX(L.lon),gy:latToY(L.lat),prio:(L.h||1500)+RANK[L.t],w:L.name.length*6.6+14};
+}).sort((a,b)=>b.prio-a.prio);
 const v3=new THREE.Vector3();
 function project(gx,gy,el,lift){
   const w=mapEl.clientWidth,h=mapEl.clientHeight;
@@ -448,10 +539,23 @@ function project(gx,gy,el,lift){
   const vis=v3.z<1&&v3.x>-1.1&&v3.x<1.1&&v3.y>-1.1&&v3.y<1.1;
   el.style.display=vis?"":"none";
   if(vis)el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) translate(-50%,${el.classList.contains("rdot")?"-50%":"-100%"})`;
+  return vis?[(v3.x+1)/2*w,(1-v3.y)/2*h]:null;
+}
+function placeLabels(){
+  const boxes=[], far=camera.position.distanceTo(controls.target)*3+40;
+  for(const o of labelNodes){
+    o.el.hidden=!state.labels; if(!state.labels)continue;
+    const wp=gridToWorld(o.gx,o.gy,0.05);
+    if(wp.distanceTo(camera.position)>far){o.el.style.display="none";continue}
+    const p=project(o.gx,o.gy,o.el,0.05); if(!p)continue;
+    const b=[p[0]-o.w/2,p[1]-34,p[0]+o.w/2,p[1]];
+    if(boxes.some(q=>b[0]<q[2]&&b[2]>q[0]&&b[1]<q[3]&&b[3]>q[1])){o.el.style.display="none";continue}
+    boxes.push(b);
+  }
 }
 function updateLabels(){
   if(lastMarker&&!pinEl.hidden)project(lastMarker[0],lastMarker[1],pinEl,0);
-  labelNodes.forEach(o=>{o.el.hidden=!state.labels; if(state.labels)project(o.gx,o.gy,o.el,0.05)});
+  placeLabels();
   const show=state.route&&route&&route.ends;
   $("rStart").hidden=!show; $("rEnd").hidden=!show;
   if(show){project(route.ends[0].gx,route.ends[0].gy,$("rStart"),0.05);project(route.ends[1].gx,route.ends[1].gy,$("rEnd"),0.05)}
@@ -494,9 +598,21 @@ function orbit(dTheta,dPhi,abs){
 let gd=null;
 globe.addEventListener("pointerdown",e=>{gd={x:e.clientX,y:e.clientY,moved:false};globe.setPointerCapture(e.pointerId);e.preventDefault()});
 globe.addEventListener("pointermove",e=>{if(!gd)return;const dx=e.clientX-gd.x,dy=e.clientY-gd.y;if(Math.abs(dx)+Math.abs(dy)>1)gd.moved=true;gd.x=e.clientX;gd.y=e.clientY;orbit(-dx*0.014,-dy*0.012)});
-globe.addEventListener("pointerup",()=>{if(gd&&!gd.moved)orbit(0,0,true);gd=null});
+globe.addEventListener("pointerup",()=>{if(gd&&!gd.moved)togglePad();gd=null});
+const padEl=$("pad");
+function togglePad(force){const open=force!==undefined?force:padEl.hidden;padEl.hidden=!open;globe.setAttribute("aria-expanded",open)}
+let holdTimer=null;
+const DIRS={left:[0.03,0],right:[-0.03,0],up:[0,-0.018],down:[0,0.018]};
+padEl.querySelectorAll("[data-dir]").forEach(btn=>{
+  const d=DIRS[btn.dataset.dir];
+  const stop=()=>{clearInterval(holdTimer);holdTimer=null};
+  btn.addEventListener("pointerdown",e=>{e.preventDefault();stop();orbit(d[0],d[1]);holdTimer=setInterval(()=>orbit(d[0],d[1]),30)});
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>btn.addEventListener(ev,stop));
+  btn.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){orbit(d[0]*4,d[1]*4);e.preventDefault()}});
+});
+$("north").onclick=()=>orbit(0,0,true);
 globe.addEventListener("pointercancel",()=>{gd=null});
-globe.addEventListener("keydown",e=>{const m={ArrowLeft:[0.15,0],ArrowRight:[-0.15,0],ArrowUp:[0,-0.08],ArrowDown:[0,0.08]}[e.key];if(m){orbit(m[0],m[1]);e.preventDefault()}else if(e.key==="Enter"||e.key===" "){orbit(0,0,true);e.preventDefault()}});
+globe.addEventListener("keydown",e=>{const m={ArrowLeft:[0.15,0],ArrowRight:[-0.15,0],ArrowUp:[0,-0.08],ArrowDown:[0,0.08]}[e.key];if(m){orbit(m[0],m[1]);e.preventDefault()}else if(e.key==="Enter"||e.key===" "){togglePad();e.preventDefault()}});
 
 // ---------- Tap ----------
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
@@ -645,7 +761,8 @@ mapEl.addEventListener("drop",e=>{e.preventDefault();dragDepth=0;$("drop").hidde
 // ---------- Controls ----------
 function applyUniforms(){
   shared.mode.value=state.base==="ortho"?0:1;
-  shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0;
+  shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
+  $("legendAspect").hidden=!state.aspect;
   shared.winter.value=state.winter&&winterKey?1:0;
   $("legend").hidden=!state.slope; $("winterSec").hidden=!state.winter;
   if(lastMarker)showPoint(lastMarker[0],lastMarker[1]);
@@ -654,11 +771,12 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lySlope","slope"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"]].forEach(([id,key])=>{
+[["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
     if(key==="route")buildRouteLine();
+    if(key==="trees")updateLOD();
     applyUniforms();
   };
 });
@@ -668,6 +786,44 @@ let lineTimer=null;
 ["lineN","lineS"].forEach(id=>{$(id).oninput=e=>{state[id]=+e.target.value;setLineOut();clearTimeout(lineTimer);lineTimer=setTimeout(async()=>{await computeWinter(true);applyUniforms()},220)}});
 setLineOut();
 $("wind").onchange=async e=>{state.wind=e.target.value;await computeWinter();applyUniforms()};
+
+// ---------- Offline storage and app install ----------
+const OFFLINE_CACHE="mmm-offline-v1";
+function offlineUrls(maxZ){
+  const urls=new Set();
+  ["./","index.html","js/app.js?v="+APPV,"data/nordkette-meta.js?v="+APPV,"data/nordkette-dem.txt?v="+APPV,"data/nordkette-veg.txt?v="+APPV,"data/nordkette-trees.txt?v="+APPV,"manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"].forEach(u=>urls.add(new URL(u,location.href).href));
+  [...document.querySelectorAll("script[src],link[rel=stylesheet]")].forEach(e=>urls.add(e.src||e.href));
+  const ex0=G.x0, ex1=G.x0+W*G.cell, ey1=G.y1, ey0=G.y1-H*G.cell;
+  orthoUrls(ex0,ex1,ey0,ey1,15).forEach(u=>urls.add(u));
+  {const w=Math.min(4096,MAXTEX);shadeUrls(ex0,ex1,ey0,ey1,w,Math.round(w*H/W)).forEach(u=>urls.add(u))}
+  for(let z=16;z<=maxZ;z++)for(const c of chunks){
+    orthoUrls(c.mx0,c.mx1,c.my0,c.my1,z).forEach(u=>urls.add(u));
+    const res=2*ORIGIN/2**z/256; shadeUrls(c.mx0,c.mx1,c.my0,c.my1,Math.ceil((c.mx1-c.mx0)/res),Math.ceil((c.my1-c.my0)/res)).forEach(u=>urls.add(u));
+  }
+  return [...urls];
+}
+async function saveOffline(maxZ){
+  const st=$("offlineStatus");
+  if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";return}
+  try{navigator.storage&&navigator.storage.persist&&await navigator.storage.persist()}catch(e){}
+  const cache=await caches.open(OFFLINE_CACHE), urls=offlineUrls(maxZ);
+  let done=0, fail=0, bytes=0, i=0;
+  $("saveStd").disabled=$("saveMax").disabled=true;
+  const worker=async()=>{while(i<urls.length){const u=urls[i++];
+    try{if(!(await cache.match(u))){const r=await fetch(u,{mode:"cors"}); if(!r.ok)throw 0; const b=await r.clone().blob(); bytes+=b.size; await cache.put(u,r)}}catch(e){fail++}
+    done++; if(done%10===0||done===urls.length)st.textContent=`Speichere … ${Math.round(done/urls.length*100)} % (${fmt(bytes/1e6)} MB neu)`}};
+  await Promise.all([worker(),worker(),worker(),worker(),worker(),worker()]);
+  $("saveStd").disabled=$("saveMax").disabled=false;
+  let est="";try{const e=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(e.usage/1e6)} MB.`}catch(e){}
+  st.textContent=fail?`Gespeichert, aber ${fail} von ${urls.length} Dateien fehlen. Bei Empfang nochmal tippen.${est}`:`Nordkette ist offline verfügbar.${est}`;
+}
+$("saveStd").onclick=()=>saveOffline(16);
+$("saveMax").onclick=()=>saveOffline(17);
+$("clearOffline").onclick=async()=>{try{await caches.delete(OFFLINE_CACHE);await caches.delete("mmm-runtime-v1")}catch(e){} $("offlineStatus").textContent="Offline-Daten gelöscht."};
+let installEvt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
+$("installBtn").onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){} installEvt=null;$("installBtn").hidden=true};
+if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(e=>console.warn("SW",e))}
 
 // ---------- Start ----------
 await tick("Karte wird gezeichnet …");
