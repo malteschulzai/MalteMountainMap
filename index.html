@@ -33,22 +33,21 @@
 html,body{height:100%}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;overflow:hidden}
-.app{height:100%;display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:1fr}
-header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);min-width:0}
+.app{position:relative;height:100%;overflow:hidden;--bar:60px}
 .brand{display:flex;flex-direction:column;min-width:0;flex:1}
-.brand h1{margin:0;font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1;text-transform:uppercase}
+.brand h1{margin:0;font-family:var(--font-display);font-weight:700;font-size:19px;letter-spacing:.02em;line-height:1.05;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .brand span{font-size:12px;color:var(--muted);letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn{font:600 14px/1 var(--font-body);border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:8px;padding:10px 12px;cursor:pointer;white-space:nowrap}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .btn:focus-visible,.chip:focus-visible,.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-.map{position:relative;min-height:0;background:linear-gradient(#9dbad3,#d9e4ec 62%,#e6ecef);overflow:hidden;touch-action:none}
-.status{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:10px;font-size:11px;color:#1b2420;background:rgba(255,255,255,.78);border-radius:6px;padding:4px 7px;pointer-events:none;font-variant-numeric:tabular-nums}
+.map{position:absolute;inset:0;background:linear-gradient(#5f8fbf,#9fc0db 38%,#d3e0ea 64%,#e2eaef);overflow:hidden;touch-action:none}
+.status{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(var(--bar) + 12px);font-size:11px;color:#1b2420;background:rgba(255,255,255,.78);border-radius:6px;padding:4px 7px;pointer-events:none;font-variant-numeric:tabular-nums}
 .rdot{position:absolute;left:0;top:0;width:14px;height:14px;border-radius:50%;border:3px solid #1d4ed8;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-50%);pointer-events:none}
 .rdot.end{background:#1d4ed8;border-color:#fff}
-.map .globe{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:12px;width:68px;height:68px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
+.map .globe{position:absolute;right:max(12px,env(safe-area-inset-right,0px));bottom:calc(var(--bar) + 14px);width:68px;height:68px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
 .globe:active{cursor:grabbing}
-.pad{position:absolute;right:calc(max(12px,env(safe-area-inset-right,0px)) + 76px);bottom:8px;display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,38px);grid-template-areas:". u ." "l n r" ". d .";gap:3px}
+.pad{position:absolute;right:calc(max(12px,env(safe-area-inset-right,0px)) + 76px);bottom:calc(var(--bar) + 10px);display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,38px);grid-template-areas:". u ." "l n r" ". d .";gap:3px}
 .pbtn{border:1px solid rgba(27,36,32,.25);background:rgba(255,255,255,.92);color:#1b2420;border-radius:9px;font:700 14px/1 var(--font-body);cursor:pointer;touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,.2);user-select:none;-webkit-user-select:none}
 .pbtn:active{background:#dfe7ee}
 .pbtn.north{background:#d7301f;color:#fff;border-color:#a0220f;font-family:var(--font-display)}
@@ -72,7 +71,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 .lbl.place{font-family:var(--font-display);font-size:14px;letter-spacing:.06em;text-transform:uppercase}
 .lbl.place::after{content:"";width:6px;height:6px;border-radius:50%;background:#1b2420;margin-top:2px;box-shadow:0 0 0 2px #fff}
 
-.tools{position:absolute;right:max(12px,env(safe-area-inset-right,0px));top:12px;display:flex;flex-direction:column;gap:8px}
+.tools{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:62px;display:flex;flex-direction:column;gap:8px}
 .tool{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:700 13px/1 var(--font-display);letter-spacing:.04em;cursor:pointer;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .tool svg{width:20px;height:20px}
 .exag{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);box-shadow:0 1px 3px rgba(0,0,0,.12)}
@@ -81,7 +80,14 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 .loading{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;font:600 16px var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:#3b4640}
 .drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--panel) 70%,transparent);font-weight:600}
 
-.sheet{background:var(--panel);border-top:1px solid var(--line);max-height:46vh;overflow-y:auto;overscroll-behavior:contain}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;max-height:72%;background:var(--panel);border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.2);padding-bottom:env(safe-area-inset-bottom,0px)}
+.sheet-bar{display:flex;align-items:center;gap:10px;min-height:var(--bar);padding-block:6px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));cursor:pointer;min-width:0}
+.sheet-bar .btn{padding:9px 12px}
+.toggle{flex:none;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--chip);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.toggle svg{width:20px;height:20px;transition:transform .2s}
+.toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+.toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sheet-body{overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--line);min-height:0}
 .sheet-inner{display:flex;flex-direction:column;gap:14px;padding-block:12px 16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .chip{font:600 13px/1 var(--font-body);border:1px solid var(--line);background:var(--chip);color:var(--muted);border-radius:999px;padding:8px 12px;cursor:pointer}
@@ -112,24 +118,18 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 @media (min-width:900px){
-  .app{grid-template-columns:1fr 380px;grid-template-rows:auto 1fr}
-  header{grid-column:1 / -1}
-  .sheet{max-height:none;border-top:0;border-left:1px solid var(--line);grid-row:2;grid-column:2}
+  .app{--bar:0px}
+  .sheet{left:auto;bottom:auto;top:12px;right:max(12px,env(safe-area-inset-right,0px));width:380px;max-height:calc(100% - 130px);border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.2);padding-bottom:0}
+  .sheet-bar{min-height:60px}
+  .map .globe{bottom:14px} .pad{bottom:10px} .status{bottom:12px}
 }
+@media (prefers-reduced-motion:reduce){.toggle svg{transition:none}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 </style>
 
 </head>
 <body>
 <div class="app">
-  <header>
-    <div class="brand">
-      <h1>Malte Mountain Map</h1>
-      <span>Nordkette · Luftbild auf Laserscan-Gelände</span>
-    </div>
-    <label class="btn primary" for="gpx">GPX laden</label>
-    <input class="sr" type="file" id="gpx">
-  </header>
 
   <div class="map" id="map">
     <div class="loading" id="loading">Gelände wird geladen …</div>
@@ -152,7 +152,17 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
     <div class="drop" id="drop" hidden>GPX-Datei hier ablegen</div>
   </div>
 
-  <aside class="sheet">
+  <aside class="sheet" aria-label="Ebenen und Einstellungen">
+    <div class="sheet-bar" id="sheetBar">
+      <div class="brand">
+        <h1>Malte Mountain Map</h1>
+        <span>Nordkette · Luftbild auf Laserscan-Gelände</span>
+      </div>
+      <label class="btn primary" for="gpx">GPX</label>
+      <input class="sr" type="file" id="gpx">
+      <button class="toggle" id="sheetToggle" aria-expanded="false" aria-controls="sheetBody" aria-label="Ebenen und Einstellungen aufklappen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+    </div>
+    <div class="sheet-body" id="sheetBody" hidden>
     <div class="sheet-inner">
       <div class="sec">
         <div class="row" role="group" aria-label="Kartengrundlage">
@@ -222,6 +232,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 
       <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
     </div>
+    </div>
   </aside>
 </div>
 
@@ -233,7 +244,7 @@ header{display:flex;align-items:center;gap:12px;padding-block:10px;padding-left:
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="data/nordkette-meta.js?v=9"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>

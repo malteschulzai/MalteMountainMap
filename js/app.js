@@ -124,7 +124,12 @@ function computeShelter(dir){
 const smooth=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)};
 let winterKey=null;
 // presets per snow amount: snow lines north/south, fill bonus, how much dwarf pine shows, snow on tree crowns
-const PRESETS=[{n:1500,s:1900,bonus:0,bury:0.85,crown:0.25},{n:1000,s:1400,bonus:0.12,bury:0.6,crown:0.45},{n:650,s:950,bonus:0.28,bury:0.35,crown:0.65}];
+// lo/hi: how much "terrain snow index" is needed for full cover; steep: slope range where snow slides off;
+// form/wind: how strongly ridges are scoured and hollows filled; sun: melt on south faces
+const PRESETS=[
+  {n:1500,s:1900,bonus:-0.30,form:0.75,wind:18,sun:0.50,steepLo:34,steepHi:50,lo:0.35,hi:0.98,bury:0.85,crown:0.20,ctx:0.75},
+  {n:1000,s:1400,bonus:-0.08,form:0.55,wind:22,sun:0.40,steepLo:40,steepHi:56,lo:0.28,hi:0.84,bury:0.60,crown:0.42,ctx:0.9},
+  {n:650, s:950, bonus:0.28, form:0.40,wind:30,sun:0.30,steepLo:46,steepHi:62,lo:0.18,hi:0.62,bury:0.35,crown:0.65,ctx:1}];
 async function computeWinter(quiet){
   const key=[state.snow,state.wind,state.lineN,state.lineS].join("|"); if(key===winterKey)return;
   if(!quiet)loadEl.hidden=false;
@@ -135,12 +140,13 @@ async function computeWinter(quiet){
   for(let k=0;k<N;k++){
     const e=E(k), s=slopeAt(k), L=LN+LD*southness[k]/255;
     const fE=smooth(L-100,L+300,e);
-    const fS=1-smooth(46,62,s);            // at 3 m, slopes to ~45° hold snow; walls above ~60° stay bare
-    const sun=0.3*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e));
-    const v=fE*fS*(1+P.bonus+0.45*form[k]/100+shelter[k]/28-sun);
-    data[k*4+2]=smooth(0.22,0.7,v)*255;
+    const fS=1-smooth(P.steepLo,P.steepHi,s);
+    const sun=P.sun*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e));
+    const v=fE*fS*(1+P.bonus+P.form*form[k]/100+shelter[k]/P.wind-sun);
+    data[k*4+2]=smooth(P.lo,P.hi,v)*255;
   }
-  dataTex.needsUpdate=true; winterKey=key; shared.bury.value=P.bury; shared.crownSnow.value=P.crown; needsRender=true;
+  dataTex.needsUpdate=true; winterKey=key; shared.bury.value=P.bury; shared.crownSnow.value=P.crown;
+  shared.lineN.value=state.lineN; shared.lineS.value=state.lineS; shared.steepLo.value=P.steepLo-10; shared.steepHi.value=P.steepHi-12; shared.ctxAmt.value=P.ctx; needsRender=true;
   if(!quiet)loadEl.hidden=true;
 }
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
@@ -174,7 +180,8 @@ function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,TH
 const shared={
   globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
-  camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xcfdbe5)},
+  camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
+  lineN:{value:650}, lineS:{value:950}, steepLo:{value:36}, steepHi:{value:50}, ctxAmt:{value:1},
   fogNear:{value:30}, fogFar:{value:260}
 };
 const VERT=`
@@ -216,7 +223,9 @@ void main(){
     col = useLocal>0.5 ? texture2D(localMap,vUv2).rgb : texture2D(globalMap,vUv).rgb;
     olum=dot(col,vec3(.299,.587,.114));
     col *= mix(1.0, 0.72+0.5*sg, 0.38);
-    col = pow(col, vec3(0.95));
+    float l2=dot(col,vec3(.299,.587,.114));
+    col = clamp(mix(vec3(l2),col,1.18),0.0,1.0);
+    col = pow(col, vec3(0.93))*1.03;
   } else {
     col = hyps(vElev)*light;
     col = mix(col, vec3(.55,.52,.49)*light, rock);
@@ -272,15 +281,26 @@ for(let cj=0;cj<CY;cj++)for(let ci=0;ci<CX;ci++){
     uv[v*2]=(gx+0.5)/W; uv[v*2+1]=1-(gy+0.5)/H;
     uv2[v*2]=(gx-gx0)/(gx1-gx0); uv2[v*2+1]=1-(gy-gy0)/(gy1-gy0);
   }
-  const idx=new Uint32Array((nx-1)*(ny-1)*6); let n=0;
+  const idxA=[];
   for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
-    const a=j*nx+i,b=a+1,c=a+nx,d=c+1; idx[n++]=a;idx[n++]=c;idx[n++]=b;idx[n++]=b;idx[n++]=c;idx[n++]=d;
+    const a=j*nx+i,b=a+1,c=a+nx,d=c+1; idxA.push(a,c,b,b,c,d);
+  }
+  const P=[...pos], UV=[...uv], UV2=[...uv2];
+  const edges=[];
+  if(gx0===0)edges.push([...Array(ny).keys()].map(j=>j*nx));
+  if(gx1===W-1)edges.push([...Array(ny).keys()].map(j=>j*nx+nx-1));
+  if(gy0===0)edges.push([...Array(nx).keys()]);
+  if(gy1===H-1)edges.push([...Array(nx).keys()].map(i=>(ny-1)*nx+i));
+  for(const e of edges){
+    const base=P.length/3;
+    e.forEach(v=>{P.push(P[v*3],P[v*3+1]-0.6,P[v*3+2]);UV.push(UV[v*2],UV[v*2+1]);UV2.push(UV2[v*2],UV2[v*2+1])});
+    for(let s=0;s<e.length-1;s++){const a=e[s],b=e[s+1],c=base+s,d=base+s+1;idxA.push(a,c,b,b,c,d,a,b,c,b,d,c)}
   }
   const geo=new THREE.BufferGeometry();
-  geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
-  geo.setAttribute("uv",new THREE.BufferAttribute(uv,2));
-  geo.setAttribute("uvLocal",new THREE.BufferAttribute(uv2,2));
-  geo.setIndex(new THREE.BufferAttribute(idx,1));
+  geo.setAttribute("position",new THREE.BufferAttribute(new Float32Array(P),3));
+  geo.setAttribute("uv",new THREE.BufferAttribute(new Float32Array(UV),2));
+  geo.setAttribute("uvLocal",new THREE.BufferAttribute(new Float32Array(UV2),2));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(idxA),1));
   geo.computeBoundingSphere(); geo.computeBoundingBox();
   const uniforms=Object.assign({},shared,{localMap:{value:blank},useLocal:{value:0},localShade:{value:blank},useLocalShade:{value:0},treesOn:{value:0}});
   const mesh=new THREE.Mesh(geo,new THREE.ShaderMaterial({uniforms,vertexShader:VERT,fragmentShader:FRAG,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:2}));
@@ -300,15 +320,19 @@ vegPromise.then(v=>{
 // ---------- 3D trees (tree tops from laser scan: surface minus terrain) ----------
 const treeGroup=new THREE.Group(); treeGroup.scale.y=state.exag; scene.add(treeGroup);
 let treeData=null; const treeOffsets=[];
-function coneGeo(r,h,y0,seg){
-  const g=new THREE.ConeGeometry(r,h,seg,1,true); g.translate(0,y0+h/2,0); return g.toNonIndexed();
-}
+// low-poly fir: two tiers, each an apex plus a ring (no hidden or degenerate triangles)
 const treeGeo=(()=>{
-  const parts=[coneGeo(0.5,0.62,0.12,7),coneGeo(0.36,0.5,0.5,7)];
-  let n=0; parts.forEach(p=>n+=p.attributes.position.count);
-  const pos=new Float32Array(n*3), nor=new Float32Array(n*3); let o=0;
-  parts.forEach(p=>{pos.set(p.attributes.position.array,o*3);nor.set(p.attributes.normal.array,o*3);o+=p.attributes.position.count});
-  const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.BufferAttribute(pos,3)); g.setAttribute("normal",new THREE.BufferAttribute(nor,3)); return g;
+  const tiers=[[0.5,0.12,0.74],[0.34,0.5,1.0]], seg=6, pos=[], nor=[];
+  for(const [r,y0,y1] of tiers){
+    const k=r/(y1-y0);
+    for(let i=0;i<seg;i++){
+      const a0=i/seg*Math.PI*2, a1=(i+1)/seg*Math.PI*2, am=(a0+a1)/2;
+      pos.push(0,y1,0, Math.sin(a0)*r,y0,Math.cos(a0)*r, Math.sin(a1)*r,y0,Math.cos(a1)*r);
+      const nx=Math.sin(am), nz=Math.cos(am), ny=k; const l=Math.hypot(nx,ny,nz);
+      for(let v=0;v<3;v++)nor.push(nx/l,ny/l,nz/l);
+    }
+  }
+  const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.Float32BufferAttribute(pos,3)); g.setAttribute("normal",new THREE.Float32BufferAttribute(nor,3)); return g;
 })();
 const treeMat=new THREE.ShaderMaterial({
   uniforms:{winter:shared.winter,crownSnow:shared.crownSnow,camPos:shared.camPos,haze:shared.haze,fogNear:shared.fogNear,fogFar:shared.fogFar},
@@ -341,7 +365,7 @@ treesPromise.then(b=>{
   let o=0; META.trees.counts.forEach(c=>{treeOffsets.push([o,c]);o+=c});
   scheduleLOD();
 });
-const TREE_MAX=small?70000:320000, TREE_DIST=small?20:60;
+const TREE_MAX=small?60000:160000, TREE_DIST=small?14:30;
 const _m=new THREE.Matrix4(), _p=new THREE.Vector3(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(), _up=new THREE.Vector3(0,1,0);
 function buildTrees(ci){
   const c=chunks[ci]; if(c.trees||!treeData)return;
@@ -365,6 +389,74 @@ function updateTrees(list){
   chunks.forEach((c,ci)=>{if(want.has(ci))buildTrees(ci);else dropTrees(ci)});
 }
 
+// ---------- Surrounding terrain to the horizon ----------
+const CG=META.context;
+const ctxGroup=new THREE.Group(); ctxGroup.scale.y=state.exag; scene.add(ctxGroup);
+const ctxShared={orthoMap:{value:blank0()},ctxOrtho:{value:0},exag:{value:state.exag},
+  hole:{value:new THREE.Vector4((-W/2-0.5+1)*sc,(-H/2-0.5+1)*sc,(W/2-0.5-1)*sc,(H/2-0.5-1)*sc)}};
+const ctxMat=new THREE.ShaderMaterial({
+  uniforms:Object.assign({},ctxShared,{mode:shared.mode,winter:shared.winter,lineN:shared.lineN,lineS:shared.lineS,steepLo:shared.steepLo,steepHi:shared.steepHi,ctxAmt:shared.ctxAmt,camPos:shared.camPos,haze:shared.haze,fogNear:shared.fogNear,fogFar:shared.fogFar}),
+  vertexShader:`
+    uniform float exag; varying vec2 vUv; varying vec3 vN; varying float vElev; varying vec3 vWorld;
+    void main(){ vUv=uv; vElev=position.y*100.0; vN=normalize(vec3(normal.x,normal.y/exag,normal.z));
+      vec4 wp=modelMatrix*vec4(position,1.0); vWorld=wp.xyz; gl_Position=projectionMatrix*viewMatrix*wp; }`,
+  fragmentShader:`
+    uniform sampler2D orthoMap; uniform float ctxOrtho, mode, winter, lineN, lineS, steepLo, steepHi, ctxAmt, fogNear, fogFar;
+    uniform vec3 camPos, haze; uniform vec4 hole;
+    varying vec2 vUv; varying vec3 vN; varying float vElev; varying vec3 vWorld;
+    vec3 hyps(float e){
+      vec3 c=mix(vec3(.84,.87,.80),vec3(.89,.90,.82),smoothstep(500.,1100.,e));
+      c=mix(c,vec3(.93,.91,.85),smoothstep(1100.,1700.,e));
+      c=mix(c,vec3(.89,.87,.84),smoothstep(1700.,2200.,e));
+      return mix(c,vec3(.94,.94,.93),smoothstep(2200.,2700.,e));
+    }
+    void main(){
+      if(vWorld.x>hole.x&&vWorld.x<hole.z&&vWorld.z>hole.y&&vWorld.z<hole.w)discard;
+      vec3 n=normalize(vN); float sh=clamp(dot(n,normalize(vec3(-0.5,0.7,-0.5))),0.0,1.0);
+      float slope=degrees(acos(clamp(n.y,0.0,1.0)));
+      vec3 col=hyps(vElev)*(0.42+0.72*sh);
+      col=mix(col,vec3(.55,.52,.49)*(0.42+0.72*sh),smoothstep(35.,50.,slope)*step(1200.,vElev));
+      vec4 o=texture2D(orthoMap,vUv);
+      if(mode<0.5&&ctxOrtho>0.5&&o.a>0.5){ vec3 p=o.rgb; float l=dot(p,vec3(.299,.587,.114)); p=clamp(mix(vec3(l),p,1.18),0.0,1.0); col=pow(p,vec3(.93))*mix(1.0,0.72+0.5*sh,0.45); }
+      if(winter>0.5){
+        float hz=length(n.xz); float so=hz>0.02?0.5+0.5*n.z/hz:0.5; so=mix(0.5,so,smoothstep(3.,12.,slope));
+        float L=mix(lineN,lineS,so);
+        float s=smoothstep(L-100.,L+300.,vElev)*(1.0-smoothstep(steepLo,steepHi,slope))*ctxAmt;
+        col=mix(col,mix(vec3(.79,.855,.95),vec3(1.0),smoothstep(0.15,0.75,sh)),s);
+      }
+      col=mix(col,haze,smoothstep(fogNear,fogFar,length(vWorld-camPos))*(winter>0.5?0.6:0.72));
+      gl_FragColor=vec4(col,1.0);
+    }`
+});
+const ctxPromise=CG?loadB64Gz("data/context-dem.txt?v="+APPV).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
+ctxPromise.then(b=>{
+  if(!b)return;
+  const cw=CG.W, chh=CG.H, pr=new Int16Array(b.buffer,b.byteOffset,cw*chh), el=new Int16Array(cw*chh);
+  for(let y=0;y<chh;y++)for(let x=0;x<cw;x++){const k=y*cw+x;
+    el[k]=y===0?(x===0?pr[k]:el[k-1]+pr[k]):(x===0?el[k-cw]+pr[k]:pr[k]+el[k-1]+el[k-cw]-el[k-cw-1])}
+  const st=small?3:2, xs=[], ys=[];
+  for(let x=0;x<cw;x+=st)xs.push(x); for(let y=0;y<chh;y+=st)ys.push(y);
+  const nx=xs.length, ny=ys.length, pos=new Float32Array(nx*ny*3), uv=new Float32Array(nx*ny*2);
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+    const mxp=CG.x0+(xs[i]+0.5)*CG.cell, myp=CG.y1-(ys[j]+0.5)*CG.cell, v=j*nx+i;
+    pos[v*3]=((mxp-G.x0)/G.cell-0.5-W/2)*sc; pos[v*3+1]=(el[ys[j]*cw+xs[i]]-6)/U; pos[v*3+2]=((G.y1-myp)/G.cell-0.5-H/2)*sc;
+    uv[v*2]=(xs[i]+0.5)/cw; uv[v*2+1]=1-(ys[j]+0.5)/chh;
+  }
+  const idx=new Uint32Array((nx-1)*(ny-1)*6); let n=0;
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b2=a+1,c=a+nx,d=c+1;idx[n++]=a;idx[n++]=c;idx[n++]=b2;idx[n++]=b2;idx[n++]=c;idx[n++]=d}
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute("position",new THREE.BufferAttribute(pos,3)); geo.setAttribute("uv",new THREE.BufferAttribute(uv,2));
+  geo.setIndex(new THREE.BufferAttribute(idx,1)); geo.computeVertexNormals(); geo.computeBoundingSphere();
+  ctxGroup.add(new THREE.Mesh(geo,ctxMat)); needsRender=true;
+  // photo for the surroundings, waits until the near area is loaded
+  setTimeout(async()=>{
+    const cv=await renderOrtho(CG.x0,CG.x0+CG.W*CG.cell,CG.y1-CG.H*CG.cell,CG.y1,12,null,true);
+    if(!cv)return;
+    const t=new THREE.CanvasTexture(cv); t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+    ctxShared.orthoMap.value=t; ctxShared.ctxOrtho.value=1; needsRender=true;
+  },4000);
+});
+
 // ---------- Orthophoto tiles (basemap.at) ----------
 const ORIGIN=20037508.342789244;
 const tileUrl=(z,x,y)=>`https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/${z}/${y}/${x}.jpeg`;
@@ -383,11 +475,11 @@ function orthoUrls(mx0,mx1,my0,my1,z){
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++)out.push(tileUrl(z,tx,ty));
   return out;
 }
-async function renderOrtho(mx0,mx1,my0,my1,z,onProgress){
+async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
   const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
-  const ctx=cv.getContext("2d"); ctx.fillStyle="#8c8f84"; ctx.fillRect(0,0,w,h);
+  const ctx=cv.getContext("2d"); if(!transparent){ctx.fillStyle="#8c8f84"; ctx.fillRect(0,0,w,h)}
   const tx0=Math.floor((mx0+ORIGIN)/tileM), tx1=Math.floor((mx1+ORIGIN)/tileM);
   const ty0=Math.floor((ORIGIN-my1)/tileM), ty1=Math.floor((ORIGIN-my0)/tileM);
   const jobs=[]; let done=0, ok=0; const total=(tx1-tx0+1)*(ty1-ty0+1);
@@ -398,7 +490,7 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress){
     }));
   }
   await Promise.all(jobs);
-  return ok>=total*0.6?cv:null;
+  return ok>=total*(transparent?0.2:0.6)?cv:null;
 }
 // fine hillshades (50 cm laser scan) from Land Tirol WMS: terrain -> red, surface -> green
 const WMS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapServer/WMSServer";
@@ -517,7 +609,7 @@ $("view2d").onclick=()=>{const [x,y]=targetGrid();lookAt(x,y,Math.max(4,camera.p
 $("fit").onclick=()=>fitRoute("3d");
 $("exag").oninput=e=>{
   state.exag=+e.target.value; $("exagOut").textContent=fmt(state.exag,1)+"×";
-  terrain.scale.y=state.exag; treeGroup.scale.y=state.exag; buildRouteLine();
+  terrain.scale.y=state.exag; treeGroup.scale.y=state.exag; ctxGroup.scale.y=state.exag; ctxShared.exag.value=state.exag; buildRouteLine();
   if(lastMarker)placeMarker(lastMarker[0],lastMarker[1]);
   needsRender=true;
 };
@@ -748,7 +840,7 @@ function parseGPX(text,fname){
 }
 async function loadFile(file){
   try{const {ll,name}=parseGPX(await file.text(),file.name);
-    setRoute(ll,name,`${fmt(ll.length)} Punkte aus ${file.name}`); if(route)fitRoute("3d");
+    setRoute(ll,name,`${fmt(ll.length)} Punkte aus ${file.name}`); if(route){fitRoute("3d");setSheet(true)}
   }catch(err){$("routeInfo").innerHTML=`<p class="warn">${escapeHtml(err.message)} Prüfe, ob du eine .gpx-Datei gewählt hast.</p>`}
 }
 $("gpx").addEventListener("change",e=>{const f=e.target.files[0]; if(f)loadFile(f); e.target.value=""});
@@ -791,10 +883,11 @@ $("wind").onchange=async e=>{state.wind=e.target.value;await computeWinter();app
 const OFFLINE_CACHE="mmm-offline-v1";
 function offlineUrls(maxZ){
   const urls=new Set();
-  ["./","index.html","js/app.js?v="+APPV,"data/nordkette-meta.js?v="+APPV,"data/nordkette-dem.txt?v="+APPV,"data/nordkette-veg.txt?v="+APPV,"data/nordkette-trees.txt?v="+APPV,"manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"].forEach(u=>urls.add(new URL(u,location.href).href));
+  ["./","index.html","js/app.js?v="+APPV,"data/nordkette-meta.js?v="+APPV,"data/nordkette-dem.txt?v="+APPV,"data/nordkette-veg.txt?v="+APPV,"data/nordkette-trees.txt?v="+APPV,"data/context-dem.txt?v="+APPV,"manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"].forEach(u=>urls.add(new URL(u,location.href).href));
   [...document.querySelectorAll("script[src],link[rel=stylesheet]")].forEach(e=>urls.add(e.src||e.href));
   const ex0=G.x0, ex1=G.x0+W*G.cell, ey1=G.y1, ey0=G.y1-H*G.cell;
   orthoUrls(ex0,ex1,ey0,ey1,15).forEach(u=>urls.add(u));
+  if(CG)orthoUrls(CG.x0,CG.x0+CG.W*CG.cell,CG.y1-CG.H*CG.cell,CG.y1,12).forEach(u=>urls.add(u));
   {const w=Math.min(4096,MAXTEX);shadeUrls(ex0,ex1,ey0,ey1,w,Math.round(w*H/W)).forEach(u=>urls.add(u))}
   for(let z=16;z<=maxZ;z++)for(const c of chunks){
     orthoUrls(c.mx0,c.mx1,c.my0,c.my1,z).forEach(u=>urls.add(u));
@@ -824,6 +917,16 @@ let installEvt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
 $("installBtn").onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){} installEvt=null;$("installBtn").hidden=true};
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(e=>console.warn("SW",e))}
+
+// ---------- Collapsible panel ----------
+const sheetBody=$("sheetBody"), sheetToggle=$("sheetToggle");
+function setSheet(open){
+  sheetBody.hidden=!open; sheetToggle.setAttribute("aria-expanded",open);
+  sheetToggle.setAttribute("aria-label",open?"Ebenen und Einstellungen zuklappen":"Ebenen und Einstellungen aufklappen");
+  if(open&&route)drawProfile();
+}
+sheetToggle.onclick=e=>{e.stopPropagation();setSheet(sheetBody.hidden)};
+$("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,button"))return;setSheet(sheetBody.hidden)});
 
 // ---------- Start ----------
 await tick("Karte wird gezeichnet …");
