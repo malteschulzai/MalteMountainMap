@@ -164,10 +164,91 @@ mapEl.insertBefore(renderer.domElement,mapEl.firstChild);
 const MAXTEX=renderer.capabilities.maxTextureSize;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(45,1,0.1,800);
-const controls=new THREE.MapControls(camera,renderer.domElement);
-controls.enableDamping=true; controls.dampingFactor=0.12;
-controls.maxPolarAngle=1.38; controls.minDistance=0.4; controls.maxDistance=180;
-controls.screenSpacePanning=false;
+// ---------- Terrain height in world units (1 m detail tiles first, then 3 m grid) ----------
+function heightGrid(gx,gy){const p=patchHeight(gx,gy);return p!==null?p:elevAt(gx,gy)}
+function groundY(x,z){const gx=x/sc+W/2, gy=z/sc+H/2; if(gx<0||gy<0||gx>W-1||gy>H-1)return null; return heightGrid(gx,gy)/U*state.exag}
+// march a ray over the height field; returns hit point or null
+function rayTerrain(o,d){
+  let t=0, prev=0;
+  for(let i=0;i<600&&t<900;i++){
+    const x=o.x+d.x*t, y=o.y+d.y*t, z=o.z+d.z*t, g=groundY(x,z);
+    if(g!==null&&y<=g){
+      let a=prev,b=t; for(let k=0;k<20;k++){const m=(a+b)/2, gm=groundY(o.x+d.x*m,o.z+d.z*m); if(gm!==null&&o.y+d.y*m<=gm)b=m; else a=m}
+      return new THREE.Vector3(o.x+d.x*b,o.y+d.y*b,o.z+d.z*b);
+    }
+    prev=t; t+=Math.min(4,Math.max(0.01,g===null?2:(y-g)*0.45));
+  }
+  return null;
+}
+// Map gestures like Google Earth / FATMAP: grab-pan, pinch toward the fingers, twist to rotate,
+// two-finger vertical drag to tilt, wheel zooms toward the cursor, right-drag rotates, glide after a flick.
+function createControls(cam,dom){
+  const C={target:new THREE.Vector3(),maxPolarAngle:1.4,minDistance:0.25,maxDistance:200,_l:[],
+    addEventListener(t,f){if(t==="change")this._l.push(f)},update(){return step()}};
+  const emit=()=>C._l.forEach(f=>f());
+  const ptr=new Map(), rc=new THREE.Raycaster(), nd=new THREE.Vector2(), UP=new THREE.Vector3(0,1,0), pl=new THREE.Plane();
+  let mode=null, grabH=0, grabPt=null, last=null, two=null, lock=null, vel=new THREE.Vector3(), lastMove=0, glide=false, tapT=0, tapXY=null;
+  function rayAt(x,y){const r=dom.getBoundingClientRect();nd.set((x-r.left)/r.width*2-1,-(y-r.top)/r.height*2+1);rc.setFromCamera(nd,cam);return rc.ray}
+  function onPlane(x,y,h){pl.set(UP,-h);const q=new THREE.Vector3();return rayAt(x,y).intersectPlane(pl,q)}
+  function groundAt(x,y){const r=rayAt(x,y);return rayTerrain(r.origin,r.direction)||onPlane(x,y,C.target.y)}
+  function translate(v){cam.position.add(v);C.target.add(v)}
+  function rotateAround(p,a){const c=Math.cos(a),s=Math.sin(a);[cam.position,C.target].forEach(v=>{const dx=v.x-p.x,dz=v.z-p.z;v.x=p.x+dx*c-dz*s;v.z=p.z+dx*s+dz*c})}
+  function zoomAround(p,f){const d=cam.position.distanceTo(C.target),n=Math.min(C.maxDistance,Math.max(C.minDistance,d*f));f=n/d;
+    cam.position.sub(p).multiplyScalar(f).add(p);C.target.sub(p).multiplyScalar(f).add(p)}
+  function orbit(dth,dph){const off=cam.position.clone().sub(C.target),s=new THREE.Spherical().setFromVector3(off);
+    s.theta+=dth;s.phi=Math.max(0.03,Math.min(C.maxPolarAngle,s.phi+dph));off.setFromSpherical(s);cam.position.copy(C.target).add(off)}
+  function finish(){
+    const ext=Math.max(W,H)*sc*2.2; C.target.x=Math.max(-ext,Math.min(ext,C.target.x)); C.target.z=Math.max(-ext,Math.min(ext,C.target.z));
+    const g=groundY(cam.position.x,cam.position.z); if(g!==null&&cam.position.y<g+0.08)cam.position.y=g+0.08;
+    cam.lookAt(C.target); emit();
+  }
+  function gest(){const [a,b]=[...ptr.values()];return {mx:(a.x+b.x)/2,my:(a.y+b.y)/2,d:Math.hypot(a.x-b.x,a.y-b.y),ang:Math.atan2(b.y-a.y,b.x-a.x)}}
+  function begin(e){
+    glide=false; vel.set(0,0,0);
+    if(ptr.size===1){const p=[...ptr.values()][0];
+      if(e&&e.pointerType==="mouse"&&(e.button===2||e.ctrlKey||e.shiftKey||e.altKey)){mode="rotate";last={x:p.x,y:p.y}}
+      else{mode="pan";const g=groundAt(p.x,p.y);grabH=g?g.y:C.target.y;grabPt=onPlane(p.x,p.y,grabH)}}
+    else if(ptr.size>=2){mode="two";two=gest();lock=null;const g=groundAt(two.mx,two.my);two.h=g?g.y:C.target.y;two.sx=two.mx;two.sy=two.my;two.sd=two.d;two.sa=two.ang}
+  }
+  function move(){
+    if(mode==="pan"){const p=[...ptr.values()][0],q=onPlane(p.x,p.y,grabH);
+      if(q&&grabPt){const dv=grabPt.clone().sub(q);dv.y=0;translate(dv);const now=performance.now();vel.lerp(dv,0.5);lastMove=now;finish()}}
+    else if(mode==="rotate"){const p=[...ptr.values()][0];orbit(-(p.x-last.x)*0.006,(p.y-last.y)*0.005);last={x:p.x,y:p.y};finish()}
+    else if(mode==="two"&&ptr.size>=2){
+      const g=gest();
+      if(!lock){const dy=g.my-two.sy,dx=g.mx-two.sx,dd=Math.abs(g.d-two.sd);let da=Math.abs(g.ang-two.sa);if(da>Math.PI)da=2*Math.PI-da;
+        if(Math.abs(dy)>10&&Math.abs(dx)<Math.abs(dy)*0.6&&dd<18&&da<0.12)lock="tilt";else if(Math.abs(dx)+Math.abs(dy)+dd>12||da>0.12)lock="pinch"}
+      if(lock==="tilt"){orbit(0,(g.my-two.my)*0.006)}
+      else if(lock==="pinch"){
+        const q0=onPlane(two.mx,two.my,two.h),q1=onPlane(g.mx,g.my,two.h);
+        if(q0&&q1){const dv=q0.sub(q1);dv.y=0;translate(dv)}
+        const G=onPlane(g.mx,g.my,two.h);
+        if(G){if(g.d>0&&two.d>0)zoomAround(G,two.d/g.d);let da=g.ang-two.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;rotateAround(G,-da)}
+      }
+      two=Object.assign(two,{mx:g.mx,my:g.my,d:g.d,ang:g.ang});finish();
+    }
+  }
+  dom.addEventListener("pointerdown",e=>{dom.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});begin(e)});
+  dom.addEventListener("pointermove",e=>{const p=ptr.get(e.pointerId);if(!p)return;p.x=e.clientX;p.y=e.clientY;move()});
+  const end=e=>{if(!ptr.has(e.pointerId))return;ptr.delete(e.pointerId);
+    if(ptr.size===0){if(mode==="pan"&&performance.now()-lastMove<60&&vel.length()>0.002)glide=true;mode=null;
+      // double tap zooms in
+      if(e.pointerType!=="mouse"){const now=performance.now();if(tapXY&&now-tapT<300&&Math.hypot(e.clientX-tapXY.x,e.clientY-tapXY.y)<25){const g=groundAt(e.clientX,e.clientY);if(g){zoomAround(g,0.5);finish()}tapXY=null}else{tapT=now;tapXY={x:e.clientX,y:e.clientY}}}}
+    else begin(null)};
+  dom.addEventListener("pointerup",end); dom.addEventListener("pointercancel",end);
+  dom.addEventListener("wheel",e=>{e.preventDefault();glide=false;const g=groundAt(e.clientX,e.clientY);if(g){zoomAround(g,Math.exp(Math.max(-120,Math.min(120,e.deltaY))*0.0022));finish()}},{passive:false});
+  dom.addEventListener("dblclick",e=>{const g=groundAt(e.clientX,e.clientY);if(g){zoomAround(g,0.5);finish()}});
+  dom.addEventListener("contextmenu",e=>e.preventDefault());
+  function step(){
+    let ch=false;
+    if(glide){translate(vel);vel.multiplyScalar(0.9);if(vel.length()<0.0005)glide=false;ch=true}
+    if(ptr.size===0){const g=groundY(C.target.x,C.target.z);if(g!==null&&Math.abs(g-C.target.y)>0.002){const d=(g-C.target.y)*0.12;C.target.y+=d;cam.position.y+=d;ch=true}}
+    if(ch)finish(); else cam.lookAt(C.target);
+    return ch;
+  }
+  return C;
+}
+const controls=createControls(camera,renderer.domElement);
 
 const dataTex=new THREE.DataTexture(data,W,H,THREE.RGBAFormat);
 dataTex.magFilter=THREE.LinearFilter; dataTex.minFilter=THREE.LinearFilter; dataTex.generateMipmaps=false;
@@ -194,7 +275,8 @@ void main(){
 }`;
 const FRAG=`
 uniform sampler2D globalMap, localMap, dataMap, vegMap, globalShade, localShade, aspectMap;
-uniform float showAspect, treesOn;
+uniform float showAspect, treesOn, isPatch, useFineSlope;
+uniform sampler2D maskMap, fineSlope;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
 uniform vec3 camPos, haze;
 varying vec2 vUv; varying vec2 vUv2; varying float vElev; varying vec3 vWorld;
@@ -209,7 +291,8 @@ void main(){
   vec2 dUv=vec2(vUv.x,1.0-vUv.y);
   vec4 d=texture2D(dataMap,dUv);
   vec4 vg=texture2D(vegMap,dUv);
-  float shade=d.r, slope=d.g*63.75, snow=d.b, cont=d.a;
+  if(isPatch<0.5 && texture2D(maskMap,dUv).r>0.5) discard;   // a 1 m detail tile covers this spot
+  float shade=d.r, slope=(useFineSlope>0.5?texture2D(fineSlope,vUv2).r:d.g)*63.75, snow=d.b, cont=d.a;
   float tree=vg.r, shrub=vg.a;
   // fine 50 cm hillshades from Land Tirol: r = terrain, g = surface (trees, shrubs)
   float sg=shade, so=shade; bool fine=false;
@@ -359,34 +442,166 @@ const treeMat=new THREE.ShaderMaterial({
       gl_FragColor=vec4(col,1.0);
     }`
 });
+// trees are grouped into ~250 m cells so only the nearby ones are built
+const TB=48, tBins=new Map(), tBuilt=new Map();
 treesPromise.then(b=>{
   if(!b)return;
   const n=META.trees.n; treeData={x:new Uint16Array(b.buffer,b.byteOffset,n),y:new Uint16Array(b.buffer,b.byteOffset+2*n,n),h:new Uint8Array(b.buffer,b.byteOffset+4*n,n)};
-  let o=0; META.trees.counts.forEach(c=>{treeOffsets.push([o,c]);o+=c});
+  const tmp=new Map();
+  for(let i=0;i<n;i++){const k=Math.floor(treeData.y[i]/16/TB)*1000+Math.floor(treeData.x[i]/16/TB); let a=tmp.get(k); if(!a)tmp.set(k,a=[]); a.push(i)}
+  for(const [k,a] of tmp){const bx=k%1000, by=Math.floor(k/1000), gx=(bx+0.5)*TB, gy=(by+0.5)*TB;
+    tBins.set(k,{idx:Uint32Array.from(a),gx,gy})}
   scheduleLOD();
 });
-const TREE_MAX=small?60000:160000, TREE_DIST=small?14:30;
+const TREE_MAX=small?70000:180000, TREE_DIST=small?12:26;
 const _m=new THREE.Matrix4(), _p=new THREE.Vector3(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(), _up=new THREE.Vector3(0,1,0);
-function buildTrees(ci){
-  const c=chunks[ci]; if(c.trees||!treeData)return;
-  const [o,cnt]=treeOffsets[ci]; if(!cnt)return;
+function buildBin(k){
+  if(tBuilt.has(k))return; const bin=tBins.get(k), cnt=bin.idx.length;
   const mesh=new THREE.InstancedMesh(treeGeo,treeMat,cnt); mesh.frustumCulled=false;
-  for(let i=0;i<cnt;i++){
-    const gx=treeData.x[o+i]/16, gy=treeData.y[o+i]/16, h=treeData.h[o+i]/4;
+  for(let j=0;j<cnt;j++){const i=bin.idx[j];
+    const gx=treeData.x[i]/16, gy=treeData.y[i]/16, h=treeData.h[i]/4;
     _p.set((gx-W/2)*sc, elevAt(gx,gy)/U, (gy-H/2)*sc);
     _q.setFromAxisAngle(_up,(i*2.399)%6.283);
     const wdt=Math.max(1.6,h*0.38)/U; _s.set(wdt,h/U,wdt);
-    mesh.setMatrixAt(i,_m.compose(_p,_q,_s));
+    mesh.setMatrixAt(j,_m.compose(_p,_q,_s));
   }
-  mesh.instanceMatrix.needsUpdate=true;
-  treeGroup.add(mesh); c.trees=mesh; c.uniforms.treesOn.value=state.trees?1:0; needsRender=true;
+  mesh.instanceMatrix.needsUpdate=true; treeGroup.add(mesh); tBuilt.set(k,mesh); needsRender=true;
 }
-function dropTrees(ci){const c=chunks[ci]; if(!c.trees)return; treeGroup.remove(c.trees); c.trees.dispose(); c.trees=null; c.uniforms.treesOn.value=0; needsRender=true}
-function updateTrees(list){
+function dropBin(k){const m=tBuilt.get(k); if(!m)return; treeGroup.remove(m); m.dispose(); tBuilt.delete(k); needsRender=true}
+function updateTrees(){
   if(!treeData)return;
-  let used=0; const want=new Set();
-  if(state.trees)for(const {c,d} of list){const ci=chunks.indexOf(c), cnt=treeOffsets[ci][1]; if(d<TREE_DIST&&used+cnt<=TREE_MAX){want.add(ci);used+=cnt}}
-  chunks.forEach((c,ci)=>{if(want.has(ci))buildTrees(ci);else dropTrees(ci)});
+  const want=new Set();
+  if(state.trees){
+    const cp=camera.position, list=[];
+    for(const [k,b] of tBins){const x=(b.gx-W/2)*sc, z=(b.gy-H/2)*sc, y=elevAt(b.gx,b.gy)/U*state.exag, d=Math.hypot(x-cp.x,y-cp.y,z-cp.z)-TB*sc*0.7;
+      if(d<TREE_DIST)list.push([k,d,b.idx.length])}
+    list.sort((a,b)=>a[1]-b[1]); let used=0;
+    for(const [k,,c] of list){if(used+c>TREE_MAX)break; used+=c; want.add(k)}
+  }
+  [...tBuilt.keys()].forEach(k=>{if(!want.has(k))dropBin(k)});
+  let built=0; for(const k of want){if(!tBuilt.has(k)){buildBin(k);if(++built>=12){scheduleLOD();break}}}
+}
+
+// ---------- 1 m detail tiles near the camera (Land Tirol laser scan via WCS) ----------
+const WCS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapServer/WCSServer";
+const PZ=16, PN=513, PSTEP=small?4:2, PMAX=small?4:12, PDIST=small?14:26;
+var patches=new Map();
+const MW=Math.ceil(W/4), MH=Math.ceil(H/4), maskData=new Uint8Array(MW*MH);
+const maskTex=new THREE.DataTexture(maskData,MW,MH,THREE.LuminanceFormat);
+maskTex.magFilter=maskTex.minFilter=THREE.NearestFilter; maskTex.generateMipmaps=false; maskTex.needsUpdate=true;
+shared.maskMap={value:maskTex}; shared.isPatch={value:0}; shared.useFineSlope={value:0}; shared.fineSlope={value:blank0()};
+chunks.forEach(c=>{c.uniforms.maskMap=shared.maskMap;c.uniforms.isPatch=shared.isPatch;c.uniforms.useFineSlope=shared.useFineSlope;c.uniforms.fineSlope=shared.fineSlope});
+const TILEM=2*20037508.342789244/2**PZ;
+const gxOfMx=mx=>(mx-G.x0)/G.cell-0.5, gyOfMy=my=>(G.y1-my)/G.cell-0.5;
+function patchHeight(gx,gy){
+  if(!patches||!patches.size)return null;
+  const mx=G.x0+(gx+0.5)*G.cell, my=G.y1-(gy+0.5)*G.cell;
+  const p=patches.get(Math.floor((mx+ORIGIN)/TILEM)+"/"+Math.floor((ORIGIN-my)/TILEM));
+  if(!p||!p.dem)return null;
+  const fx=(mx-p.mx0)/(p.mx1-p.mx0)*(PN-1), fy=(p.my1-my)/(p.my1-p.my0)*(PN-1);
+  const x=Math.min(PN-2,Math.max(0,Math.floor(fx))), y=Math.min(PN-2,Math.max(0,Math.floor(fy))), ax=fx-x, ay=fy-y, k=y*PN+x, D=p.dem;
+  return D[k]*(1-ax)*(1-ay)+D[k+1]*ax*(1-ay)+D[k+PN]*(1-ax)*ay+D[k+PN+1]*ax*ay;
+}
+function patchSlope(gx,gy){
+  if(!patches||!patches.size)return null;
+  const mx=G.x0+(gx+0.5)*G.cell, my=G.y1-(gy+0.5)*G.cell;
+  const p=patches.get(Math.floor((mx+ORIGIN)/TILEM)+"/"+Math.floor((ORIGIN-my)/TILEM));
+  if(!p||!p.slope)return null;
+  const x=Math.round((mx-p.mx0)/(p.mx1-p.mx0)*(PN-1)), y=Math.round((p.my1-my)/(p.my1-p.my0)*(PN-1));
+  return p.slope[(PN-1-Math.min(PN-1,Math.max(0,y)))*PN+Math.min(PN-1,Math.max(0,x))]/4;
+}
+function rebuildMask(){
+  maskData.fill(0);
+  for(const p of patches.values()){ if(!p.mesh)continue;
+    const ga=Math.ceil(gxOfMx(p.mx0)+0.5), gb=Math.floor(gxOfMx(p.mx1)-0.5), ha=Math.ceil(gyOfMy(p.my1)+0.5), hb=Math.floor(gyOfMy(p.my0)-0.5);
+    for(let my=Math.ceil(ha/4);my<=Math.floor((hb+1)/4)-1;my++){if(my<0||my>=MH)continue;
+      for(let mx=Math.ceil(ga/4);mx<=Math.floor((gb+1)/4)-1;mx++){if(mx>=0&&mx<MW)maskData[my*MW+mx]=255}}
+  }
+  maskTex.needsUpdate=true; needsRender=true;
+}
+async function fetchDem(mx0,mx1,my0,my1){
+  // GK West coordinates of the tile on a coarse lattice, interpolated for every sample
+  const L=9, lat=[];
+  for(let j=0;j<L;j++)for(let i=0;i<L;i++)lat.push(MMMGeo.mercToGK(mx0+(mx1-mx0)*i/(L-1),my1-(my1-my0)*j/(L-1)));
+  let e0=1e12,e1=-1e12,n0=1e12,n1=-1e12; lat.forEach(([e,n])=>{e0=Math.min(e0,e);e1=Math.max(e1,e);n0=Math.min(n0,n);n1=Math.max(n1,n)});
+  e0=Math.floor(e0-4);n0=Math.floor(n0-4);e1=Math.ceil(e1+4);n1=Math.ceil(n1+4);
+  const url=`${WCS}?service=WCS&version=1.0.0&request=GetCoverage&coverage=Gelaendemodell_50cm_M28&CRS=EPSG:31254&BBOX=${e0},${n0},${e1},${n1}&RESX=1&RESY=1&FORMAT=GeoTIFF&INTERPOLATION=bilinear`;
+  const r=await fetch(url,{mode:"cors"}); if(!r.ok)throw new Error("WCS "+r.status);
+  const tif=MMMGeo.readTiff(await r.arrayBuffer());
+  const rx=(e1-e0)/tif.w, ry=(n1-n0)/tif.h, dem=new Float32Array(PN*PN);
+  for(let j=0;j<PN;j++){const v=j/(PN-1)*(L-1), lj=Math.min(L-2,Math.floor(v)), fv=v-lj;
+    for(let i=0;i<PN;i++){const u=i/(PN-1)*(L-1), li=Math.min(L-2,Math.floor(u)), fu=u-li;
+      const a=lat[lj*L+li],b=lat[lj*L+li+1],c=lat[(lj+1)*L+li],d=lat[(lj+1)*L+li+1];
+      const E=(a[0]*(1-fu)+b[0]*fu)*(1-fv)+(c[0]*(1-fu)+d[0]*fu)*fv, Nn=(a[1]*(1-fu)+b[1]*fu)*(1-fv)+(c[1]*(1-fu)+d[1]*fu)*fv;
+      const cx=(E-e0)/rx-0.5, cy=(n1-Nn)/ry-0.5, x=Math.min(tif.w-2,Math.max(0,Math.floor(cx))), y=Math.min(tif.h-2,Math.max(0,Math.floor(cy))), ax=cx-x, ay=cy-y, k=y*tif.w+x, T=tif.data;
+      let h=T[k]*(1-ax)*(1-ay)+T[k+1]*ax*(1-ay)+T[k+tif.w]*(1-ax)*ay+T[k+tif.w+1]*ax*ay;
+      if(!(h>-500&&h<5000))h=elevAt(gxOfMx(mx0+(mx1-mx0)*i/(PN-1)),gyOfMy(my1-(my1-my0)*j/(PN-1)));
+      dem[j*PN+i]=h;
+    }}
+  return dem;
+}
+function slopeOf(dem,mx0,mx1,my1){
+  const dx=(mx1-mx0)/(PN-1)*Math.cos(mercLat(my1)*Math.PI/180), out=new Uint8Array(PN*PN);
+  for(let j=0;j<PN;j++)for(let i=0;i<PN;i++){
+    const im=Math.max(0,i-1),ip=Math.min(PN-1,i+1),jm=Math.max(0,j-1),jp=Math.min(PN-1,j+1);
+    const zx=(dem[j*PN+ip]-dem[j*PN+im])/((ip-im)*dx), zy=(dem[jp*PN+i]-dem[jm*PN+i])/((jp-jm)*dx);
+    out[(PN-1-j)*PN+i]=Math.min(255,Math.round(Math.atan(Math.hypot(zx,zy))*720/Math.PI));
+  }
+  return out;
+}
+const mercLat=my=>(2*Math.atan(Math.exp(my/R))-Math.PI/2)*180/Math.PI;
+function patchMesh(p){
+  const n=Math.floor((PN-1)/PSTEP)+1, pos=[], uv=[], uvl=[], idx=[];
+  for(let j=0;j<n;j++)for(let i=0;i<n;i++){
+    const si=i*PSTEP, sj=j*PSTEP, mx=p.mx0+(p.mx1-p.mx0)*si/(PN-1), my=p.my1-(p.my1-p.my0)*sj/(PN-1), gx=gxOfMx(mx), gy=gyOfMy(my);
+    pos.push((gx-W/2)*sc,p.dem[sj*PN+si]/U,(gy-H/2)*sc); uv.push((gx+0.5)/W,1-(gy+0.5)/H); uvl.push(si/(PN-1),1-sj/(PN-1));
+  }
+  for(let j=0;j<n-1;j++)for(let i=0;i<n-1;i++){const a=j*n+i,b=a+1,c=a+n,d=c+1;idx.push(a,c,b,b,c,d)}
+  const edges=[[...Array(n).keys()],[...Array(n).keys()].map(i=>(n-1)*n+i),[...Array(n).keys()].map(j=>j*n),[...Array(n).keys()].map(j=>j*n+n-1)];
+  for(const e of edges){const base=pos.length/3;
+    e.forEach(v=>{pos.push(pos[v*3],pos[v*3+1]-0.06,pos[v*3+2]);uv.push(uv[v*2],uv[v*2+1]);uvl.push(uvl[v*2],uvl[v*2+1])});
+    for(let s=0;s<e.length-1;s++){const a=e[s],b=e[s+1],c=base+s,d=base+s+1;idx.push(a,c,b,b,c,d,a,b,c,b,d,c)}}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute("position",new THREE.Float32BufferAttribute(pos,3)); g.setAttribute("uv",new THREE.Float32BufferAttribute(uv,2)); g.setAttribute("uvLocal",new THREE.Float32BufferAttribute(uvl,2));
+  g.setIndex(idx); g.computeBoundingSphere(); g.computeBoundingBox(); return g;
+}
+let patchBusy=0;
+async function loadPatch(p){
+  patchBusy++; p.loading=true;
+  try{
+    const [dem,ortho,shade]=await Promise.all([fetchDem(p.mx0,p.mx1,p.my0,p.my1),renderOrtho(p.mx0,p.mx1,p.my0,p.my1,18).catch(()=>null),renderShade(p.mx0,p.mx1,p.my0,p.my1,1024,1024).catch(()=>null)]);
+    if(!patches.has(p.key)){patchBusy--;return}
+    p.dem=dem; p.slope=slopeOf(dem,p.mx0,p.mx1,p.my1);
+    const st=new THREE.DataTexture(p.slope,PN,PN,THREE.LuminanceFormat); st.magFilter=THREE.LinearFilter; st.minFilter=THREE.LinearFilter; st.generateMipmaps=false; st.needsUpdate=true;
+    const an=renderer.capabilities.getMaxAnisotropy(), tex=cv=>{if(!cv)return null;const t=new THREE.CanvasTexture(cv);t.anisotropy=an;return t};
+    p.tex=[tex(ortho),tex(shade),st];
+    const u=Object.assign({},shared,{localMap:{value:p.tex[0]||blank},useLocal:{value:p.tex[0]?1:0},localShade:{value:p.tex[1]||blank},useLocalShade:{value:p.tex[1]?1:0},
+      treesOn:{value:0},isPatch:{value:1},useFineSlope:{value:1},fineSlope:{value:st}});
+    p.mesh=new THREE.Mesh(patchMesh(p),new THREE.ShaderMaterial({uniforms:u,vertexShader:VERT,fragmentShader:FRAG}));
+    terrain.add(p.mesh); rebuildMask();
+    if(lastMarker)placeMarker(lastMarker[0],lastMarker[1]);
+  }catch(e){console.warn("Detailkachel",p.key,e);p.failed=true}
+  p.loading=false; patchBusy--; scheduleLOD();
+}
+function dropPatch(key){const p=patches.get(key);if(!p)return;patches.delete(key);
+  if(p.mesh){terrain.remove(p.mesh);p.mesh.geometry.dispose();p.mesh.material.dispose();p.tex.forEach(t=>t&&t.dispose())} rebuildMask()}
+function updatePatches(){
+  const d=camera.position.distanceTo(controls.target);
+  if(d>PDIST||!window.MMMGeo){[...patches.keys()].forEach(dropPatch);return}
+  const tg=controls.target, fmx=G.x0+(tg.x/sc+W/2+0.5)*G.cell, fmy=G.y1-(tg.z/sc+H/2+0.5)*G.cell;
+  const rM=Math.max(500,d*U*1.3)/Math.cos(47.3*Math.PI/180);
+  const ex0=G.x0+G.cell, ex1=G.x0+(W-1)*G.cell, ey0=G.y1-(H-1)*G.cell, ey1=G.y1-G.cell, list=[];
+  for(let ty=Math.floor((ORIGIN-(fmy+rM))/TILEM);ty<=Math.floor((ORIGIN-(fmy-rM))/TILEM);ty++)
+    for(let tx=Math.floor((fmx-rM+ORIGIN)/TILEM);tx<=Math.floor((fmx+rM+ORIGIN)/TILEM);tx++){
+      const mx0=tx*TILEM-ORIGIN, my1=ORIGIN-ty*TILEM; if(mx0<ex0||mx0+TILEM>ex1||my1>ey1||my1-TILEM<ey0)continue;
+      list.push({key:tx+"/"+ty,tx,ty,mx0,mx1:mx0+TILEM,my1,my0:my1-TILEM,dist:Math.hypot(mx0+TILEM/2-fmx,my1-TILEM/2-fmy)});
+    }
+  list.sort((a,b)=>a.dist-b.dist); const want=new Set(list.slice(0,PMAX).map(t=>t.key));
+  [...patches.keys()].forEach(k=>{if(!want.has(k))dropPatch(k)});
+  for(const tdef of list.slice(0,PMAX)){
+    if(patches.has(tdef.key))continue; if(patchBusy>=2)break;
+    const p=Object.assign(tdef,{}); patches.set(p.key,p); loadPatch(p);
+  }
 }
 
 // ---------- Surrounding terrain to the horizon ----------
@@ -548,7 +763,7 @@ function scheduleLOD(){clearTimeout(lodTimer);lodTimer=setTimeout(updateLOD,350)
 function chunkPixels(c,z){const res=2*ORIGIN/2**z/256;return 2*Math.ceil((c.mx1-c.mx0)/res)*Math.ceil((c.my1-c.my0)/res)}
 function updateLOD(){
   const list=chunks.map(c=>({c,d:chunkDist(c)})).sort((a,b)=>a.d-b.d);
-  if(!shared.orthoReady.value&&!shared.shadeReady.value){updateTrees(list);return}
+  if(!shared.orthoReady.value&&!shared.shadeReady.value){updateTrees(list);updatePatches();return}
   let used=0;
   for(const {c,d} of list){
     let z=d<14?17:d<45?16:0;
@@ -556,7 +771,7 @@ function updateLOD(){
     if(z)used+=chunkPixels(c,z);
     c.want=z;
   }
-  updateTrees(list);
+  updateTrees(list); updatePatches();
   for(const c of chunks){
     if(c.want===c.z||c.loading===c.want)continue;
     if(c.want===0){drop(c);continue}
@@ -584,9 +799,9 @@ async function loadChunk(c,z){
 const pinEl=$("pin"), pinLabel=$("pinLabel");
 let lastMarker=null;
 function placeMarker(gx,gy){
-  lastMarker=[gx,gy]; pinLabel.textContent=fmt(Math.round(elevAt(gx,gy)))+" m"; pinEl.hidden=false; needsRender=true;
+  lastMarker=[gx,gy]; pinLabel.textContent=fmt(Math.round(heightGrid(gx,gy)))+" m"; pinEl.hidden=false; needsRender=true;
 }
-const gridToWorld=(gx,gy,lift=0)=>new THREE.Vector3((gx-W/2)*sc,elevAt(gx,gy)/U*state.exag+lift,(gy-H/2)*sc);
+const gridToWorld=(gx,gy,lift=0)=>new THREE.Vector3((gx-W/2)*sc,heightGrid(gx,gy)/U*state.exag+lift,(gy-H/2)*sc);
 
 // ---------- Views ----------
 function lookAt(gx,gy,dist,mode){
@@ -633,12 +848,19 @@ function project(gx,gy,el,lift){
   if(vis)el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) translate(-50%,${el.classList.contains("rdot")?"-50%":"-100%"})`;
   return vis?[(v3.x+1)/2*w,(1-v3.y)/2*h]:null;
 }
+function occluded(wp){
+  const o=camera.position, n=48;
+  for(let i=2;i<n-1;i++){const f=i/n, x=o.x+(wp.x-o.x)*f, y=o.y+(wp.y-o.y)*f, z=o.z+(wp.z-o.z)*f, g=groundY(x,z);
+    if(g!==null&&g>y+0.03)return true}
+  return false;
+}
 function placeLabels(){
   const boxes=[], far=camera.position.distanceTo(controls.target)*3+40;
   for(const o of labelNodes){
     o.el.hidden=!state.labels; if(!state.labels)continue;
     const wp=gridToWorld(o.gx,o.gy,0.05);
     if(wp.distanceTo(camera.position)>far){o.el.style.display="none";continue}
+    if(occluded(wp)){o.el.style.display="none";continue}
     const p=project(o.gx,o.gy,o.el,0.05); if(!p)continue;
     const b=[p[0]-o.w/2,p[1]-34,p[0]+o.w/2,p[1]];
     if(boxes.some(q=>b[0]<q[2]&&b[2]>q[0]&&b[1]<q[3]&&b[3]>q[1])){o.el.style.display="none";continue}
@@ -716,15 +938,15 @@ renderer.domElement.addEventListener("pointerup",e=>{
   const r=renderer.domElement.getBoundingClientRect();
   ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
   ray.setFromCamera(ndc,camera);
-  const hit=ray.intersectObjects(terrain.children)[0]; if(!hit)return;
-  const gx=hit.point.x/sc+W/2, gy=hit.point.z/sc+H/2;
+  const hp=rayTerrain(ray.ray.origin,ray.ray.direction); if(!hp)return;
+  const gx=hp.x/sc+W/2, gy=hp.z/sc+H/2;
   lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy);
 });
 function slopePill(s){const c=slopeClass(s);if(c<0)return `<span class="pill" style="background:var(--chip);color:var(--muted)">unter 30°</span>`;
   const names=["30–35°","35–40°","40–45°","über 45°"],bg=["var(--s30)","var(--s35)","var(--s40)","var(--s45)"];
   return `<span class="pill" style="background:${bg[c]};color:${c>=2?"#fff":"#1b2420"}">${names[c]}</span>`}
 function showPoint(gx,gy){
-  const k=idxAt(gx,gy), e=elevAt(gx,gy), s=slopeAt(k);
+  const k=idxAt(gx,gy), e=heightGrid(gx,gy), ps=patchSlope(gx,gy), s=ps!==null?ps:slopeAt(k);
   $("pointInfo").innerHTML=`<div class="point"><span class="big">${fmt(Math.round(e))} m</span><span class="big">${fmt(Math.round(s))}°</span>${slopePill(s)}</div>
   ${state.winter&&winterKey?`<div class="point"><span class="sub">Winter-Modell: ${snowText(data[k*4+2]/255)}</span></div>`:""}
   <div class="point"><span class="sub">Exposition ${ASPECTS[aspect[k]]}</span><span class="sub">${fmt(yToLat(gy),5)} N, ${fmt(xToLon(gx),5)} O</span></div>`;
