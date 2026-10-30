@@ -1,4 +1,7 @@
 // Settings for Malte Mountain Map.
-// mapboxToken: public Mapbox token (starts with "pk."), restricted to this website's address in the Mapbox account.
-// With a token the map extends to the whole Alps (Mapbox terrain and satellite outside Tirol/Austria).
-window.MMM_CONFIG={mapboxToken:""};
+// mapboxToken: public Mapbox token (starts with "pk."). Used for Mapbox Satellite outside Austria and Alps-wide loading.
+// mapboxDem: also use Mapbox terrain (needs a Mapbox account with payment method; demo access blocks the Raster Tiles API).
+window.MMM_CONFIG={
+  mapboxToken:"",
+  mapboxDem:false
+};

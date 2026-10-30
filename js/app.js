@@ -797,7 +797,15 @@ function orthoUrls(mx0,mx1,my0,my1,z){
   return out;
 }
 const MBT=(window.MMM_CONFIG||{}).mapboxToken||"";
-const EOX_MAXZ=MBT?19:15, eoxUrl=(z,x,y)=>MBT?`https://api.mapbox.com/v4/mapbox.satellite/${z}/${x}/${y}.jpg90?access_token=${MBT}`:`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
+const EOX_MAXZ=MBT?18:15, eoxUrl=(z,x,y)=>`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
+// Mapbox Satellite via Static Tiles API: one 512 px tile at z-1 covers four 256 px tiles at z
+const mbTiles=new Map();
+function mbQuad(z,x,y){
+  const k=`${z-1}/${x>>1}/${y>>1}`;
+  if(!mbTiles.has(k)){mbTiles.set(k,fetchTile(`https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/512/${k}?access_token=${MBT}`));
+    if(mbTiles.size>400)mbTiles.delete(mbTiles.keys().next().value)}
+  return mbTiles.get(k).then(bm=>bm?{bm,sx:(x&1)*256,sy:(y&1)*256}:null);
+}
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
@@ -810,8 +818,10 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
     const dx=(tx*tileM-ORIGIN-mx0)/res, dy=(my1-(ORIGIN-ty*tileM))/res;
     jobs.push(fetchTile(tileUrl(z,tx,ty)).then(async bm=>{
       if(bm){ok++;ctx.drawImage(bm,dx,dy,256,256);bm.close&&bm.close()}
-      else if(z<=EOX_MAXZ){ // outside Austria: Sentinel-2 cloudless (10 m) instead
-        const e=await fetchTile(eoxUrl(z,tx,ty)); if(e){ok++;ctx.drawImage(e,dx,dy,256,256);e.close&&e.close()}
+      else if(z<=EOX_MAXZ){ // outside Austria: Mapbox Satellite with token, else Sentinel-2 cloudless (10 m)
+        const q=MBT&&z>=2?await mbQuad(z,tx,ty):null;
+        if(q){ok++;ctx.drawImage(q.bm,q.sx,q.sy,256,256,dx,dy,256,256)}
+        else if(z<=15){const e=await fetchTile(eoxUrl(z,tx,ty)); if(e){ok++;ctx.drawImage(e,dx,dy,256,256);e.close&&e.close()}}
       }
       done++; onProgress&&onProgress(done/total);
     }));

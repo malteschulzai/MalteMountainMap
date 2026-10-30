@@ -58,7 +58,8 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
   return best;
 }
 // global terrain (Terrarium, ~25 m at z12) to fill everything outside the Land Tirol data
-const MBT=(window.MMM_CONFIG||{}).mapboxToken||"";
+// Mapbox terrain only when explicitly enabled (Raster Tiles API is not part of Mapbox demo access)
+const MBT=(window.MMM_CONFIG||{}).mapboxDem?(window.MMM_CONFIG||{}).mapboxToken||"":"";
 const DEMZ=MBT?14:12;
 function terrUrls(z,mx0,mx1,my0,my1){
   const tileM=2*ORIGIN/2**z, out=[];
