@@ -9,11 +9,16 @@ const WCS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapSer
 const say=m=>{const l=document.getElementById("loading");if(l){l.hidden=false;l.textContent=m}};
 const urls=[];
 
-async function cachedFetch(url){
+async function cachedFetch(url,onBytes){
   let c=null; try{c=await caches.open("mmm-regions")}catch(e){}
   if(c){const hit=await c.match(url); if(hit)return hit.arrayBuffer()}
-  const r=await fetch(url,{mode:"cors"}); if(!r.ok)throw new Error("HTTP "+r.status);
-  const buf=await r.arrayBuffer();
+  const r=await fetch(url,{mode:"cors"}); if(!r.ok)throw new Error("Server antwortet mit Fehler "+r.status);
+  let buf;
+  if(onBytes&&r.body&&r.body.getReader){
+    const rd=r.body.getReader(), parts=[]; let n=0;
+    for(;;){const {done,value}=await rd.read(); if(done)break; parts.push(value); n+=value.length; onBytes(n)}
+    buf=new Uint8Array(n); let o=0; parts.forEach(p=>{buf.set(p,o);o+=p.length}); buf=buf.buffer;
+  } else buf=await r.arrayBuffer();
   if(c){try{await c.put(url,new Response(buf,{headers:{"Content-Type":r.headers.get("Content-Type")||"application/octet-stream"}}));
     const ks=await c.keys(); for(let i=0;i<ks.length-40;i++)await c.delete(ks[i])}catch(e){}}
   return buf;
@@ -100,13 +105,14 @@ function frame(lon,lat){
   return {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0};
 }
 // download a region's data into the cache in the background, so switching to it is quick
-window.MMM_prefetchRegion=async(lon,lat)=>{
+window.MMM_prefetchRegion=async(lon,lat,onBytes)=>{
   const f=frame(lon,lat), zone=lon<11.75?28:31;
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
            ...terrariumTiles(f.cx,f.cy,f.cosl)];
-  const res=await Promise.all(u.map(x=>cachedFetch(x).then(()=>true).catch(()=>false)));
-  return res[0];
+  let err="";
+  const res=await Promise.all(u.map((x,i)=>cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
+  return {ok:res[0],err};
 };
 if(!at)return;
 const parts=at.split(",").map(Number), lon=parts[0], lat=parts[1];

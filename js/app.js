@@ -1339,22 +1339,25 @@ $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 const hereBtn=$("loadHere");
 let autoTimer=null, prefetching=null;
 function checkHere(){
-  const [gx,gy]=targetGrid(), d=camera.position.distanceTo(controls.target);
+  const [gx,gy]=targetGrid();
   const out=gx<W*0.15||gx>W*0.85||gy<H*0.15||gy>H*0.85;
   clearTimeout(autoTimer);
-  if(!out||d>150){if(!prefetching)hereBtn.hidden=true;return}
-  autoTimer=setTimeout(autoLoad,1200);
+  if(!out){if(!prefetching)hereBtn.hidden=true;return}
+  if(!prefetching){hereBtn.hidden=false;hereBtn.textContent="Neuer Bereich wird gleich geladen …"}
+  autoTimer=setTimeout(autoLoad,900);
 }
 async function autoLoad(){
   const [gx,gy]=targetGrid(), lon=+xToLon(gx).toFixed(5), lat=+yToLat(gy).toFixed(5);
   hereBtn.hidden=false;
   if(lon<10.05||lon>12.98||lat<46.62||lat>47.8){hereBtn.textContent="Außerhalb von Tirol";return}
   hereBtn.textContent="Lade neuen Bereich …";
-  const key=lon+","+lat; prefetching=key;
-  let ok=false; try{ok=await window.MMM_prefetchRegion(lon,lat)}catch(e){}
+  const key=lon+","+lat; prefetching=key; const t0=performance.now();
+  let res={ok:false,err:"unbekannter Fehler"};
+  try{res=await window.MMM_prefetchRegion(lon,lat,n=>{if(prefetching===key)hereBtn.textContent=`Lade neuen Bereich … ${fmt(n/1e6,1)} MB`})}catch(e){res.err=e.message}
   if(prefetching!==key)return;
   prefetching=null;
-  if(!ok){hereBtn.textContent="Bereich gerade nicht erreichbar";return}
+  if(!res.ok){hereBtn.textContent="Laden fehlgeschlagen: "+res.err+". Antippen zum Wiederholen";console.warn("Bereich",res.err,performance.now()-t0);return}
+  hereBtn.textContent="Wechsle in den neuen Bereich …";
   const [gx2,gy2]=targetGrid(); if(Math.hypot(gx2-gx,gy2-gy)*CELL>2000){checkHere();return}
   navigateKeepView(lon,lat);
 }
