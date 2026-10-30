@@ -183,9 +183,12 @@ async function computeWinter(quiet){
   for(let k=0;k<N;k++){
     const e=E(k), s=slopeAt(k), L=LN+LD*southness[k]/255;
     const fE=smooth(L-100,L+300,e);
-    const fS=1-smooth(P.steepLo,P.steepHi,s);
+    // gullies and hollows collect snow and hold it on steeper ground, ridges get scoured
+    const fm=form[k]/100, gully=fm>0?fm:0, ridge=fm<0?-fm:0, hold=9*Math.min(1,gully*1.5);
+    const fS=1-smooth(P.steepLo+hold,P.steepHi+hold,s);
     const sun=P.sun*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e));
-    const v=fE*fS*(1+P.bonus+P.form*form[k]/100+shelter[k]/P.wind-sun);
+    const wind=Math.max(-0.45,Math.min(0.45,shelter[k]/(P.wind*2.5)));
+    const v=fE*fS*(1+P.bonus+P.form*(1.8*gully-ridge)+0.35*Math.min(1,gully*2)+wind-sun);
     data[k*4+2]=smooth(P.lo,P.hi,v)*255;
   }
   dataTex.needsUpdate=true; winterKey=key; shared.bury.value=P.bury; shared.crownSnow.value=P.crown;
@@ -415,7 +418,7 @@ void main(){
     if(ortho&&isPatch<0.5){ vec3 rk=clamp((under-0.45)*1.35+0.36,0.0,1.0); under=mix(under,rk,rock); }
     else under=mix(under, vec3(.38,.36,.35)*light, rock);
     float vis=smoothstep(0.12,0.88,clamp(snow+(sg-shade)*0.8,0.0,1.0));
-    if(isPatch>0.5) vis*=1.0-smoothstep(rockLo,rockHi,slope);
+    if(isPatch>0.5) vis*=1.0-smoothstep(rockLo+10.0*snow,rockHi+10.0*snow,slope);
     // glaciers and ice faces that are white even in the summer photo stay white in winter
     vis=max(vis, snowP*smoothstep(1700.0,1900.0,vElev));
     col=mix(under,w,vis);
