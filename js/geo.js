@@ -23,10 +23,10 @@ function wgsToMgiEcef(x,y,z){
   return [k*(X+RZ*Y-RY*Z), k*(-RZ*X+Y+RX*Z), k*(RY*X-RX*Y+Z)];
 }
 // transverse mercator (Snyder), Bessel, GK West: lon0 10°20', k0 1, false northing -5 000 000
-const LON0=(10+1/3)*D2R;
+const LON0Z={28:(10+1/3)*D2R,31:(13+1/3)*D2R};
 function meridian(phi,E){const e2=E.e2,e4=e2*e2,e6=e4*e2;
   return E.a*((1-e2/4-3*e4/64-5*e6/256)*phi-(3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*phi)+(15*e4/256+45*e6/1024)*Math.sin(4*phi)-(35*e6/3072)*Math.sin(6*phi))}
-function tmForward(lon,lat,E){
+function tmForward(lon,lat,E,LON0){
   const phi=lat*D2R, lam=lon*D2R, e2=E.e2, ep2=e2/(1-e2);
   const s=Math.sin(phi),c=Math.cos(phi),t=Math.tan(phi);
   const N=E.a/Math.sqrt(1-e2*s*s), Tt=t*t, C=ep2*c*c, A=(lam-LON0)*c, M=meridian(phi,E);
@@ -34,11 +34,11 @@ function tmForward(lon,lat,E){
   const y=M+N*t*(A*A/2+(5-Tt+9*C+4*C*C)*A**4/24+(61-58*Tt+Tt*Tt+600*C-330*ep2)*A**6/720);
   return [x,y-5000000];
 }
-function lonLatToGK(lon,lat){
+function lonLatToGK(lon,lat,zone){
   const p=geoToEcef(lon,lat,0,WGS), q=wgsToMgiEcef(p[0],p[1],p[2]), g=ecefToGeo(q[0],q[1],q[2],BES);
-  return tmForward(g[0],g[1],BES);
+  return tmForward(g[0],g[1],BES,LON0Z[zone||28]);
 }
-const mercToGK=(x,y)=>{const ll=mercToLonLat(x,y);return lonLatToGK(ll[0],ll[1])};
+const mercToGK=(x,y,zone)=>{const ll=mercToLonLat(x,y);return lonLatToGK(ll[0],ll[1],zone)};
 
 // ---- GeoTIFF (uncompressed float32, strips or tiles) ----
 function readTiff(buf){

@@ -55,6 +55,17 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .lbl.saddle{font-size:11px;font-weight:500;font-style:italic;color:#2d3833}
 .lbl.saddle::after{content:"";width:8px;height:3px;border-radius:2px;background:#2d3833;margin-top:2px}
 .lbl.lift{font-size:11px;color:#14306e}
+.lbl.hut{font-size:11px;color:#5a2d0c}
+.lbl.hut::after{content:"";width:8px;height:8px;background:#b5541b;margin-top:2px;clip-path:polygon(50% 0,100% 45%,100% 100%,0 100%,0 45%);box-shadow:0 0 0 2px #fff}
+.lbl.grade{transform:translate(-50%,-50%);text-shadow:none}
+.lbl.grade span{font:700 10px/1 var(--font-body);color:#fff;background:var(--gc,#d7301f);border:1.5px solid #fff;border-radius:5px;padding:2px 4px}
+.legend i.dash{background:repeating-linear-gradient(90deg,var(--c) 0 5px,transparent 5px 8px);height:4px;vertical-align:2px}
+.search{width:100%;box-sizing:border-box;font:500 15px var(--font-body);padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--chip);color:var(--ink)}
+.search:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.results{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.result{text-align:left;display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer;font:500 14px var(--font-body)}
+.result span{font-size:12px;color:var(--muted)}
+.here{position:absolute;left:50%;transform:translateX(-50%);top:14px;z-index:4;font:600 14px var(--font-body);padding:10px 16px;border-radius:999px;border:0;background:var(--accent);color:var(--accent-ink);box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}
 .lbl.lift::after{content:"";width:7px;height:7px;background:#1f4ea3;margin-top:2px;box-shadow:0 0 0 2px #fff}
 .globe:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .pin{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;pointer-events:none}
@@ -149,6 +160,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <button class="tool" id="view2d" title="Von oben, Norden oben" aria-label="Draufsicht">2D</button>
       <button class="tool" id="fit" title="Auf Spur zoomen" aria-label="Auf Spur zoomen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     </div>
+    <button class="here" id="loadHere" hidden>Diesen Bereich laden</button>
     <div class="drop" id="drop" hidden>GPX-Datei hier ablegen</div>
   </div>
 
@@ -156,14 +168,21 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
     <div class="sheet-bar" id="sheetBar">
       <div class="brand">
         <h1>Malte Mountain Map</h1>
-        <span>Nordkette · Luftbild auf Laserscan-Gelände</span>
+        <span id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</span>
       </div>
+      <button class="toggle" id="searchBtn" aria-label="Ort in Tirol suchen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.6-4.6"/></svg></button>
       <label class="btn primary" for="gpx">GPX</label>
       <input class="sr" type="file" id="gpx">
       <button class="toggle" id="sheetToggle" aria-expanded="false" aria-controls="sheetBody" aria-label="Ebenen und Einstellungen aufklappen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
     </div>
     <div class="sheet-body" id="sheetBody" hidden>
     <div class="sheet-inner">
+      <div class="sec">
+        <label class="sr" for="search">Ort in Tirol suchen</label>
+        <input class="search" id="search" type="search" placeholder="Gipfel, Ort oder Hütte in Tirol" autocomplete="off" enterkeyhint="search">
+        <div class="results" id="searchResults"></div>
+        <button class="btn" id="goNordkette" style="margin-top:8px" hidden>Zurück zur Nordkette</button>
+      </div>
       <div class="sec">
         <div class="row" role="group" aria-label="Kartengrundlage">
           <button class="chip" id="bmOrtho" aria-pressed="true">Luftbild</button>
@@ -179,6 +198,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <button class="chip" id="lyRoute" aria-pressed="true">Spur</button>
           <button class="chip" id="lyLabels" aria-pressed="true">Namen</button>
           <button class="chip" id="lyWinter" aria-pressed="true">Winter</button>
+          <button class="chip" id="lyPistes" aria-pressed="true">Pisten &amp; Lifte</button>
+          <button class="chip" id="lyPaths" aria-pressed="true">Wege</button>
         </div>
       </div>
       <div class="legend" id="legend" hidden>
@@ -188,6 +209,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <span><i style="background:var(--s45)"></i>über 45°</span>
       </div>
 
+      <div class="legend" id="legendPaths">
+        <span><i class="dash" style="--c:#d9a400"></i>T1</span><span><i class="dash" style="--c:#d7301f"></i>T2</span><span><i class="dash" style="--c:#9b1c12"></i>T3</span>
+        <span><i class="dash" style="--c:#2f6fd8"></i>T4</span><span><i class="dash" style="--c:#1f3f9a"></i>T5</span><span><i class="dash" style="--c:#111"></i>T6</span>
+        <span><i style="background:#2a7de1"></i>blau</span><span><i style="background:#d7301f"></i>rot</span><span><i style="background:#111"></i>schwarz</span><span><i class="dash" style="--c:#7b2d8e"></i>Skitour</span>
+      </div>
       <div class="legend" id="legendAspect" hidden>
         <span><i style="background:#2952cc"></i>N</span><span><i style="background:#2ea8db"></i>NO</span><span><i style="background:#4db34d"></i>O</span><span><i style="background:#edcc33"></i>SO</span>
         <span><i style="background:#e04229"></i>S</span><span><i style="background:#db61a8"></i>SW</span><span><i style="background:#8c54c7"></i>W</span><span><i style="background:#38388c"></i>NW</span>
@@ -220,7 +246,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 
       <div class="sec">
         <h2>Offline und App</h2>
-        <p class="hint">Speichert Luftbild, Schummerung und Gelände der Nordkette auf dem Gerät. Danach funktioniert die Karte auch ohne Empfang.</p>
+        <p class="hint">Speichert Luftbild, Schummerung und Gelände des geladenen Bereichs auf dem Gerät. Danach funktioniert die Karte auch ohne Empfang.</p>
         <div class="row" style="margin-top:8px">
           <button class="btn" id="saveStd">Offline speichern (ca. 60 MB)</button>
           <button class="btn" id="saveMax">Maximale Schärfe (ca. 200 MB)</button>
@@ -230,7 +256,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p class="hint" id="offlineStatus" style="margin-top:6px" aria-live="polite"></p>
       </div>
 
-      <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+      <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Umgebung außerhalb des Bereichs: Mapzen Terrain Tiles. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
     </div>
     </div>
   </aside>
@@ -244,8 +270,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=10"></script>
-<script src="js/geo.js?v=10"></script>
-<script src="js/app.js?v=10"></script>
+<script src="data/nordkette-meta.js?v=11"></script>
+<script src="js/geo.js?v=11"></script>
+<script src="js/region.js?v=11"></script>
+<script src="js/app.js?v=11"></script>
 </body>
 </html>
