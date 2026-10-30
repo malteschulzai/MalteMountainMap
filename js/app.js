@@ -364,10 +364,12 @@ void main(){
   vec4 oc = useLocal>0.5 ? texture2D(localMap,vUv2) : texture2D(globalMap,vUv);
   bool ortho = mode<0.5 && (orthoReady>0.5 || useLocal>0.5) && oc.a>0.5;
   float rock=smoothstep(38.,58.,slope)*step(1000.,vElev);
-  vec3 col; float olum=0.5;
+  vec3 col; float olum=0.5, snowP=0.0;
   if(ortho){
     col = oc.rgb;
     olum=dot(col,vec3(.299,.587,.114));
+    // snow or ice in the summer photo: bright, or bluish where a north face lies in shadow
+    snowP=smoothstep(0.45,0.66,olum+1.2*(oc.b-oc.r));
     col *= mix(1.0, 0.72+0.5*sg, 0.38);
     float l2=dot(col,vec3(.299,.587,.114));
     col = clamp(mix(vec3(l2),col,1.18),0.0,1.0);
@@ -384,7 +386,7 @@ void main(){
     vec3 n=normalize(vec3(vNrm.x,vNrm.y/max(exag,0.01),vNrm.z));
     geoL=clamp(dot(n,normalize(vec3(-0.5,0.72,-0.48))),0.0,1.0);
     steepF=smoothstep(46.0,64.0,slope)*step(900.0,vElev);
-    if(ortho) steepF*=1.0-smoothstep(0.56,0.76,olum);   // bright in the photo = ice or firn face, not rock
+    steepF*=1.0-snowP;   // ice or firn face in the photo, not rock
     float g1=hash(floor(vec2(vWorld.x+vWorld.z,vWorld.y)*60.0)), g2=hash(floor(vec2(vWorld.x-vWorld.z,vWorld.y)*150.0));
     float l=dot(col,vec3(.299,.587,.114));
     vec3 rockBase=ortho?mix(vec3(l)*vec3(1.03,1.0,0.95),col,0.3):vec3(.56,.53,.50);
@@ -413,7 +415,7 @@ void main(){
     float vis=smoothstep(0.12,0.88,clamp(snow+(sg-shade)*0.8,0.0,1.0));
     if(isPatch>0.5) vis*=1.0-smoothstep(rockLo,rockHi,slope);
     // glaciers and ice faces that are white even in the summer photo stay white in winter
-    if(ortho) vis=max(vis, smoothstep(0.58,0.78,olum)*step(1800.0,vElev));
+    vis=max(vis, snowP*smoothstep(1700.0,1900.0,vElev));
     col=mix(under,w,vis);
   }
   if(showSG>0.5){
