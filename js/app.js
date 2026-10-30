@@ -315,14 +315,15 @@ void main(){
   float tree=vg.r, shrub=vg.a;
   // fine 50 cm hillshades from Land Tirol: r = terrain, g = surface (trees, shrubs)
   float sg=shade, so=shade; bool fine=false;
-  if(useLocalShade>0.5){ vec4 f=texture2D(localShade,vUv2); sg=f.r; so=f.g; fine=true; }
-  else if(shadeReady>0.5){ vec4 f=texture2D(globalShade,vUv); sg=f.r; so=f.g; fine=true; }
+  if(useLocalShade>0.5){ vec4 f=texture2D(localShade,vUv2); sg=f.r; so=f.g; fine=true; if(f.b>0.5){sg=shade;so=shade;fine=false;} }
+  else if(shadeReady>0.5){ vec4 f=texture2D(globalShade,vUv); sg=f.r; so=f.g; fine=true; if(f.b>0.5){sg=shade;so=shade;fine=false;} }
   float light=0.42+0.72*sg;
-  bool ortho = mode<0.5 && (orthoReady>0.5 || useLocal>0.5);
+  vec4 oc = useLocal>0.5 ? texture2D(localMap,vUv2) : texture2D(globalMap,vUv);
+  bool ortho = mode<0.5 && (orthoReady>0.5 || useLocal>0.5) && oc.a>0.5;
   float rock=smoothstep(38.,58.,slope)*step(1000.,vElev);
   vec3 col; float olum=0.5;
   if(ortho){
-    col = useLocal>0.5 ? texture2D(localMap,vUv2).rgb : texture2D(globalMap,vUv).rgb;
+    col = oc.rgb;
     olum=dot(col,vec3(.299,.587,.114));
     col *= mix(1.0, 0.72+0.5*sg, 0.38);
     float l2=dot(col,vec3(.299,.587,.114));
@@ -744,22 +745,27 @@ function orthoUrls(mx0,mx1,my0,my1,z){
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++)out.push(tileUrl(z,tx,ty));
   return out;
 }
+const EOX_MAXZ=15, eoxUrl=(z,x,y)=>`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
   const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
-  const ctx=cv.getContext("2d"); if(!transparent){ctx.fillStyle="#8c8f84"; ctx.fillRect(0,0,w,h)}
+  const ctx=cv.getContext("2d");
   const tx0=Math.floor((mx0+ORIGIN)/tileM), tx1=Math.floor((mx1+ORIGIN)/tileM);
   const ty0=Math.floor((ORIGIN-my1)/tileM), ty1=Math.floor((ORIGIN-my0)/tileM);
   const jobs=[]; let done=0, ok=0; const total=(tx1-tx0+1)*(ty1-ty0+1);
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++){
-    jobs.push(fetchTile(tileUrl(z,tx,ty)).then(bm=>{
-      if(bm){ok++;ctx.drawImage(bm,(tx*tileM-ORIGIN-mx0)/res,(my1-(ORIGIN-ty*tileM))/res,256,256);bm.close&&bm.close()}
+    const dx=(tx*tileM-ORIGIN-mx0)/res, dy=(my1-(ORIGIN-ty*tileM))/res;
+    jobs.push(fetchTile(tileUrl(z,tx,ty)).then(async bm=>{
+      if(bm){ok++;ctx.drawImage(bm,dx,dy,256,256);bm.close&&bm.close()}
+      else if(z<=EOX_MAXZ){ // outside Austria: Sentinel-2 cloudless (10 m) instead
+        const e=await fetchTile(eoxUrl(z,tx,ty)); if(e){ok++;ctx.drawImage(e,dx,dy,256,256);e.close&&e.close()}
+      }
       done++; onProgress&&onProgress(done/total);
     }));
   }
   await Promise.all(jobs);
-  return ok>=total*(transparent?0.2:0.6)?cv:null;
+  return ok>0?cv:null;
 }
 // fine hillshades (50 cm laser scan) from Land Tirol WMS: terrain -> red, surface -> green
 const WMS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapServer/WMSServer";
@@ -785,7 +791,7 @@ async function renderShade(mx0,mx1,my0,my1,w,h){
   const ctx=cv.getContext("2d",{willReadFrequently:true});
   ctx.drawImage(a,0,0,w,h); const A=ctx.getImageData(0,0,w,h);
   ctx.drawImage(b,0,0,w,h); const B=ctx.getImageData(0,0,w,h).data, D=A.data;
-  for(let i=0;i<D.length;i+=4){D[i+1]=B[i];D[i+2]=0;D[i+3]=255}
+  for(let i=0;i<D.length;i+=4){const a=D[i],b=B[i];D[i+1]=b;D[i+2]=(a===b&&(a>=253||a<=2))?255:0;D[i+3]=255}
   ctx.putImageData(A,0,0); a.close&&a.close(); b.close&&b.close();
   return cv;
 }
@@ -894,8 +900,8 @@ var osmWays=[];
 async function loadOsm(){
   const [w,s]=MMMGeo.mercToLonLat(G.x0,G.y1-H*G.cell), [e,n]=MMMGeo.mercToLonLat(G.x0+W*G.cell,G.y1);
   const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
-  const q=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|track|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
-  const key="https://mmm.local/osm/"+bb+"/v2";
+  const q=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb});way["highway"="track"](${bb}););out geom;`;
+  const key="https://mmm.local/osm/"+bb+"/v3";
   let json=null, cache=null;
   try{cache=await caches.open("mmm-osm"); const hit=await cache.match(key); if(hit)json=await hit.json()}catch(e){}
   for(let round=0;round<2&&!json;round++)for(const host of OVERPASS){
@@ -917,20 +923,21 @@ async function loadOsm(){
     if(!el.geometry||el.geometry.length<2)continue;
     const pts=el.geometry.map(g=>[lonToX(g.lon),latToY(g.lat)]);
     if(!pts.some(p=>inside(p[0],p[1])))continue;
-    let kind,color,dashed=false,label,grade=0,air=false;
-    if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color="#9be46a";dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
+    let kind,color,dashed=false,label,grade=0,air=false,track=false;
+    if(tg.highway==="track"){kind="path";track=true;color="#b88a4a";label=(tg.name?tg.name+" · ":"")+"Forstweg"+(tg.tracktype?" ("+tg.tracktype.replace("grade","Klasse ")+")":"");grade=SAC[tg.sac_scale]||0}
+    else if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
     else if(tg["piste:type"]==="downhill"){if(tg.area==="yes")continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
     else if(tg["piste:type"]==="skitour"){kind="piste";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute"}
     else if(tg.aerialway||tg.railway==="funicular"){kind="lift";color="#1b2420";air=!!tg.aerialway;label=(tg.name?tg.name+" · ":"")+(LIFT_NAME[tg.aerialway||"funicular"]||"Lift")}
     else continue;
     let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(p=>{bx0=Math.min(bx0,p[0]);bx1=Math.max(bx1,p[0]);by0=Math.min(by0,p[1]);by1=Math.max(by1,p[1])});
-    ways.push({kind,color,dashed,label,grade,air,pts,bx0,bx1,by0,by1});
-    if(kind==="path"){
+    ways.push({kind,color,dashed,label,grade,air,track,pts,bx0,bx1,by0,by1});
+    if(kind==="path"&&!track&&grade){
       let len=0; for(let i=1;i<pts.length;i++)len+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
       if(len*CELL>250){let acc=0,half=len/2;
         for(let i=1;i<pts.length;i++){const d=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
           if(acc+d>=half){const f=(half-acc)/d,gx=pts[i-1][0]+(pts[i][0]-pts[i-1][0])*f,gy=pts[i-1][1]+(pts[i][1]-pts[i-1][1])*f;
-            if(inside(gx,gy))labels.push({t:"grade",name:"T"+grade,gx,gy,prio:-3000+grade});break}
+            if(inside(gx,gy))labels.push({t:"grade",name:"T"+grade,gx,gy,prio:-3000+grade,color:SAC_COL[grade]});break}
           acc+=d}}
     }
   }
@@ -941,13 +948,13 @@ function scheduleOverlay(){clearTimeout(overlayTimer);overlayTimer=setTimeout(bu
 function buildOverlay(){
   overlayMeshes.forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose()}); overlayMeshes=[];
   if(!osmWays.length){needsRender=true;return}
-  const groups={shadow:{p:[],c:[]},casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
+  const groups={shadow:{p:[],c:[]},track:{p:[],c:[]},casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
   const step=Math.max(0.5,6/CELL), lift=0.025;
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
   const P=(gx,gy,up)=>[(gx-W/2)*sc,heightGrid(gx,gy)/U*state.exag+up,(gy-H/2)*sc];
   for(const w of osmWays){
     if(w.kind==="path"&&!state.paths)continue; if(w.kind!=="path"&&!state.pistes)continue;
-    col.set(w.color); const g=w.dashed?groups.dashed:groups.solid, cas=!w.dashed, shadow=w.kind==="path";
+    col.set(w.color); const g=w.track?groups.track:w.dashed?groups.dashed:groups.solid, cas=!w.dashed&&!w.track, shadow=w.track;
     for(let i=0;i<w.pts.length-1;i++){
       const [ax,ay]=w.pts[i],[bx,by]=w.pts[i+1]; if(!inside(ax,ay)||!inside(bx,by))continue;
       const n=w.air?1:Math.max(1,Math.ceil(Math.hypot(bx-ax,by-ay)/step)), up=w.air?0.07:lift;
@@ -955,15 +962,15 @@ function buildOverlay(){
       for(let s=1;s<=n;s++){const f=s/n, cur=P(ax+(bx-ax)*f,ay+(by-ay)*f,up);
         g.p.push(...prev,...cur); g.c.push(col.r,col.g,col.b,col.r,col.g,col.b);
         if(cas){groups.casing.p.push(...prev,...cur);groups.casing.c.push(1,1,1,1,1,1)}
-        if(shadow){groups.shadow.p.push(...prev,...cur);groups.shadow.c.push(.08,.18,.06,.08,.18,.06)}
+        if(shadow){groups.shadow.p.push(...prev,...cur);groups.shadow.c.push(1,1,1,1,1,1)}
         prev=cur}
     }
   }
   const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
-  [["shadow",3.6,false,1,0.4],["casing",5.5,false,1,1],["solid",3,false,2,1],["dashed",2.2,true,3,1]].forEach(([k,lw,dashed,order,op])=>{
+  [["shadow",6.5,false,1,0.85],["track",4,false,2,1],["casing",5.5,false,3,1],["solid",3,false,4,1],["dashed",3,true,5,1]].forEach(([k,lw,dashed,order,op])=>{
     const g=groups[k]; if(!g.p.length)return;
     const geo=new THREE.LineSegmentsGeometry(); geo.setPositions(g.p); geo.setColors(g.c);
-    const mat=new THREE.LineMaterial({vertexColors:true,linewidth:lw,resolution:res,dashed,dashSize:0.05,gapSize:0.035,dashScale:1,depthTest:true,transparent:op<1,opacity:op});
+    const mat=new THREE.LineMaterial({vertexColors:true,linewidth:lw,resolution:res,dashed,dashSize:0.06,gapSize:0.04,dashScale:1,depthTest:true,transparent:op<1,opacity:op});
     if(dashed)mat.defines.USE_DASH="";
     const m=new THREE.LineSegments2(geo,mat); if(dashed)m.computeLineDistances(); m.renderOrder=order; scene.add(m); overlayMeshes.push(m);
   });
@@ -993,7 +1000,7 @@ function project(gx,gy,el,lift){
   v3.copy(gridToWorld(gx,gy,lift)).project(camera);
   const vis=v3.z<1&&v3.x>-1.1&&v3.x<1.1&&v3.y>-1.1&&v3.y<1.1;
   el.style.display=vis?"":"none";
-  const off=el.classList.contains("grade")?"translate(7px,-50%)":el.classList.contains("rdot")?"translate(-50%,-50%)":"translate(-50%,-100%)";
+  const off=el.classList.contains("grade")?"translate(-50%,-50%)":el.classList.contains("rdot")?"translate(-50%,-50%)":"translate(-50%,-100%)";
   if(vis)el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) ${off}`;
   return vis?[(v3.x+1)/2*w,(1-v3.y)/2*h]:null;
 }
@@ -1319,7 +1326,12 @@ sheetToggle.onclick=e=>{e.stopPropagation();setSheet(sheetBody.hidden)};
 $("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,button"))return;setSheet(sheetBody.hidden)});
 
 // ---------- Places: search and loading another area of Tirol ----------
-function goTo(lon,lat,name){saveState();location.href="./?at="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
+function goTo(lon,lat,name){saveState();const [sl,sb]=snap(lon,lat);location.href="./?at="+sl+","+sb+"&t="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
+// region centres sit on a ~2.3 km grid
+const snap=(lon,lat)=>[+(Math.round(lon/0.03)*0.03).toFixed(2),+(Math.round(lat/0.02)*0.02).toFixed(2)];
+const inArea=(lon,lat)=>lon>9.0&&lon<14.0&&lat>46.0&&lat<48.2;
+const prefetched=new Map();
+function prefetch(lon,lat,onBytes){const k=lon+","+lat; if(!prefetched.has(k))prefetched.set(k,window.MMM_prefetchRegion(lon,lat,onBytes).catch(e=>({ok:false,err:e.message}))); return prefetched.get(k)}
 let searchTimer=null, searchSeq=0;
 async function runSearch(q){
   const out=$("searchResults"), my=++searchSeq;
@@ -1345,34 +1357,37 @@ $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 // panning towards the edge loads the next area automatically: data is fetched in the background,
 // then the page switches over and keeps the camera where it was
 const hereBtn=$("loadHere");
-let autoTimer=null, prefetching=null;
+let autoTimer=null, prefetching=null, preTimer=null;
 function checkHere(){
   const [gx,gy]=targetGrid();
   const out=gx<W*0.15||gx>W*0.85||gy<H*0.15||gy>H*0.85;
+  // start downloading quietly well before the edge
+  if(gx<W*0.32||gx>W*0.68||gy<H*0.32||gy>H*0.68){const lon=xToLon(gx),lat=yToLat(gy); if(inArea(lon,lat)){const [sl,sb]=snap(lon,lat); clearTimeout(preTimer); preTimer=setTimeout(()=>prefetch(sl,sb),600)}}
   clearTimeout(autoTimer);
   if(!out){if(!prefetching)hereBtn.hidden=true;return}
   if(!prefetching){hereBtn.hidden=false;hereBtn.textContent="Neuer Bereich wird gleich geladen …"}
   autoTimer=setTimeout(autoLoad,900);
 }
 async function autoLoad(){
-  const [gx,gy]=targetGrid(), lon=+xToLon(gx).toFixed(5), lat=+yToLat(gy).toFixed(5);
+  const [gx,gy]=targetGrid(), tlon=+xToLon(gx).toFixed(5), tlat=+yToLat(gy).toFixed(5), [lon,lat]=snap(tlon,tlat);
   hereBtn.hidden=false;
-  if(lon<10.05||lon>12.98||lat<46.62||lat>47.8){hereBtn.textContent="Außerhalb von Tirol";return}
+  if(!inArea(tlon,tlat)){hereBtn.textContent="Außerhalb des Kartengebiets";return}
   hereBtn.textContent="Lade neuen Bereich …";
   const key=lon+","+lat; prefetching=key; const t0=performance.now();
   let res={ok:false,err:"unbekannter Fehler"};
-  try{res=await window.MMM_prefetchRegion(lon,lat,n=>{if(prefetching===key)hereBtn.textContent=`Lade neuen Bereich … ${fmt(n/1e6,1)} MB`})}catch(e){res.err=e.message}
+  if(prefetched.has(key)){const r=await prefetched.get(key); if(!r||!r.ok)prefetched.delete(key)}
+  try{res=await prefetch(lon,lat,n=>{if(prefetching===key)hereBtn.textContent=`Lade neuen Bereich … ${fmt(n/1e6,1)} MB`})}catch(e){res.err=e.message}
   if(prefetching!==key)return;
   prefetching=null;
   if(!res.ok){hereBtn.textContent="Laden fehlgeschlagen: "+res.err+". Antippen zum Wiederholen";console.warn("Bereich",res.err,performance.now()-t0);return}
   hereBtn.textContent="Wechsle in den neuen Bereich …";
   const [gx2,gy2]=targetGrid(); if(Math.hypot(gx2-gx,gy2-gy)*CELL>2000){checkHere();return}
-  navigateKeepView(lon,lat);
+  navigateKeepView(lon,lat,tlon,tlat);
 }
-function navigateKeepView(lon,lat){
+function navigateKeepView(lon,lat,tlon,tlat){
   saveState();
   const s=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
-  location.href=`./?at=${lon},${lat}&cam=${s.radius.toFixed(3)},${s.theta.toFixed(4)},${s.phi.toFixed(4)}`;
+  location.href=`./?at=${lon},${lat}&t=${tlon},${tlat}&cam=${s.radius.toFixed(3)},${s.theta.toFixed(4)},${s.phi.toFixed(4)}`;
 }
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
@@ -1395,7 +1410,8 @@ function resize(){
 new ResizeObserver(resize).observe(mapEl); resize();
 syncUI();
 if(REG){
-  const [lo,la]=META.center, gx=lonToX(lo), gy=latToY(la);
+  const tq=(new URLSearchParams(location.search).get("t")||"").split(",").map(Number);
+  const [lo,la]=tq.length===2&&tq.every(isFinite)?tq:META.center, gx=lonToX(lo), gy=latToY(la);
   const cam=(new URLSearchParams(location.search).get("cam")||"").split(",").map(Number);
   if(cam.length===3&&cam.every(isFinite)){
     const tg=gridToWorld(gx,gy); controls.target.copy(tg);

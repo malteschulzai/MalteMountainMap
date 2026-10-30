@@ -33,6 +33,7 @@ function wcsReq(cov,zone,mx0,mx1,my0,my1,res){
   return {L,lat9,e0,e1,n0,n1,url};
 }
 async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
+  let best=null;
   for(const [cov,zone] of covs){
     const {L,lat9,e0,e1,n0,n1,url}=wcsReq(cov,zone,mx0,mx1,my0,my1,res);
     let tif; try{tif=GEO.readTiff(await cachedFetch(url))}catch(e){console.warn(cov,e);continue}
@@ -50,8 +51,33 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
         out[j*nx+i]=h;
       }}
     if(bad<nx*ny*0.5){urls.push(url);return {data:out,bad}}
+    if(bad<nx*ny&&(!best||bad<best.bad))best={data:out,bad,url};
   }
-  return null;
+  if(best)urls.push(best.url);
+  return best;
+}
+// global terrain (Terrarium, ~25 m at z12) to fill everything outside the Land Tirol data
+function terrUrls(z,mx0,mx1,my0,my1){
+  const tileM=2*ORIGIN/2**z, out=[];
+  for(let ty=Math.floor((ORIGIN-my1)/tileM);ty<=Math.floor((ORIGIN-my0)/tileM);ty++)
+    for(let tx=Math.floor((mx0+ORIGIN)/tileM);tx<=Math.floor((mx1+ORIGIN)/tileM);tx++)
+      out.push({tx,ty,url:`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${tx}/${ty}.png`});
+  return out;
+}
+async function terrariumGrid(mx0,mx1,my0,my1,nx,ny){
+  const z=12, tileM=2*ORIGIN/2**z, list=terrUrls(z,mx0,mx1,my0,my1);
+  const tx0=Math.min(...list.map(t=>t.tx)), ty0=Math.min(...list.map(t=>t.ty)), tw=Math.max(...list.map(t=>t.tx))-tx0+1, th=Math.max(...list.map(t=>t.ty))-ty0+1;
+  const cv=document.createElement("canvas"); cv.width=tw*256; cv.height=th*256;
+  const ctx=cv.getContext("2d",{willReadFrequently:true}); let ok=0;
+  await Promise.all(list.map(t=>cachedFetch(t.url).then(b=>createImageBitmap(new Blob([b]))).then(bm=>{ctx.drawImage(bm,(t.tx-tx0)*256,(t.ty-ty0)*256);ok++;urls.push(t.url)}).catch(()=>{})));
+  if(ok<list.length)return null;
+  const px=ctx.getImageData(0,0,cv.width,cv.height).data, W=cv.width, cell=tileM/256, ox=tx0*tileM-ORIGIN, oy=ORIGIN-ty0*tileM;
+  const at=(x,y)=>{x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(cv.height-1,y));const i=(y*W+x)*4;return px[i]*256+px[i+1]+px[i+2]/256-32768};
+  const out=new Float32Array(nx*ny);
+  for(let j=0;j<ny;j++){const my=my1-(j+0.5)*(my1-my0)/ny, fy=(oy-my)/cell-0.5, y=Math.floor(fy), ay=fy-y;
+    for(let i=0;i<nx;i++){const mx=mx0+(i+0.5)*(mx1-mx0)/nx, fx=(mx-ox)/cell-0.5, x=Math.floor(fx), ax=fx-x;
+      out[j*nx+i]=at(x,y)*(1-ax)*(1-ay)+at(x+1,y)*ax*(1-ay)+at(x,y+1)*(1-ax)*ay+at(x+1,y+1)*ax*ay}}
+  return out;
 }
 function fillGaps(a,nx,ny){
   const valid=new Uint8Array(nx*ny); let any=false;
@@ -109,10 +135,11 @@ window.MMM_prefetchRegion=async(lon,lat,onBytes)=>{
   const f=frame(lon,lat), zone=lon<11.75?28:31;
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
-           ...terrariumTiles(f.cx,f.cy,f.cosl)];
+           ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(12,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
   let err="";
   const res=await Promise.all(u.map((x,i)=>cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
-  return {ok:res[0],err};
+  // outside Tirol the Land Tirol request may fail, the global terrain is enough then
+  return {ok:res[0]||res.slice(3).some(Boolean),err};
 };
 if(!at)return;
 const parts=at.split(",").map(Number), lon=parts[0], lat=parts[1];
@@ -120,15 +147,26 @@ if(!isFinite(lon)||!isFinite(lat))return;
 const name=(qs.get("n")||"").slice(0,80);
 window.MMM_REGION_PROMISE=(async()=>{
   const {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0}=frame(lon,lat);
-  say("Gelände wird vom Land Tirol geladen …");
-  const ctxP=surroundings(cx,cy,cosl);
+  say("Gelände wird geladen …");
+  const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
+  const VW=W/2, VH=H/2;
+  const domP=sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
   const dgmR=await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
-  if(!dgmR)throw new Error("Für diesen Ort gibt es keine Geländedaten vom Land Tirol. Die Karte funktioniert nur innerhalb von Tirol.");
-  const dgm=dgmR.data; fillGaps(dgm,W,H);
+  const terr=await terrP;
+  if(!dgmR&&!terr)throw new Error("Für diesen Ort konnten keine Geländedaten geladen werden. Prüfe die Verbindung und versuche es nochmal.");
+  const dgm=dgmR?dgmR.data:new Float32Array(W*H).fill(NaN);
+  if(terr){
+    // blend the 5 m laser scan into the global terrain over ~100 m at the data edge
+    const valid=new Uint8Array(W*H); for(let k=0;k<W*H;k++)valid[k]=dgm[k]===dgm[k]?1:0;
+    const dist=new Float32Array(W*H).fill(1e9);
+    for(let k=0;k<W*H;k++)if(!valid[k])dist[k]=0;
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){const k=y*W+x;if(x>0)dist[k]=Math.min(dist[k],dist[k-1]+1);if(y>0)dist[k]=Math.min(dist[k],dist[k-W]+1)}
+    for(let y=H-1;y>=0;y--)for(let x=W-1;x>=0;x--){const k=y*W+x;if(x<W-1)dist[k]=Math.min(dist[k],dist[k+1]+1);if(y<H-1)dist[k]=Math.min(dist[k],dist[k+W]+1)}
+    for(let k=0;k<W*H;k++){if(!valid[k])dgm[k]=terr[k];else if(dist[k]<20){const f=dist[k]/20;dgm[k]=dgm[k]*f+terr[k]*(1-f)}}
+  } else fillGaps(dgm,W,H);
   const dm=new Uint16Array(W*H); for(let k=0;k<W*H;k++)dm[k]=Math.max(0,Math.min(65535,Math.round(dgm[k]*10)));
   say("Wald und Latschen werden erkannt …");
-  const VW=W/2, VH=H/2;
-  const domR=await sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
+  const domR=await domP;
   let veg=null, trees=null, nTrees=0;
   if(domR){
     const dom=domR.data; veg=new Uint8Array(VW*VH*2);
