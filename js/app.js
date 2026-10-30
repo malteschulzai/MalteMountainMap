@@ -353,7 +353,11 @@ vec3 hyps(float e){
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
-vec3 snowCol(float s){ return mix(vec3(.79,.855,.95), vec3(1.0), smoothstep(0.08,0.66,s)); }
+// natural snow: blue-grey in shadow, soft off-white in the sun (not pure white)
+vec3 snowCol(float s){
+  vec3 sh=vec3(.60,.67,.77), mid=vec3(.82,.86,.91), lit=vec3(.955,.962,.97);
+  return s<0.45 ? mix(sh,mid,smoothstep(0.02,0.45,s)) : mix(mid,lit,smoothstep(0.45,0.85,s));
+}
 void main(){
   vec2 dUv=vec2(vUv.x,1.0-vUv.y);
   vec4 d=texture2D(dataMap,dUv);
@@ -445,7 +449,7 @@ void main(){
     col=mix(col,sc,0.55);
   }
   // ambient occlusion: gullies and valley floors see less sky
-  if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.6+0.4*ao,aoAmt); }
+  if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.8+0.2*ao,aoAmt); }
   if(showSearch>0.5){ float m=texture2D(searchMap,dUv).r; if(m>0.35) col=mix(col,vec3(0.0,0.78,1.0),0.55*smoothstep(0.35,0.7,m)); }
   if(showContour>0.5 && cont>0.3){ col=mix(col,vec3(.36,.27,.20),cont>0.75?0.55:0.25); }
   float dist=length(vWorld-camPos);
