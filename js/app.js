@@ -814,7 +814,7 @@ function mbQuad(z,x,y){
   return mbTiles.get(k).then(bm=>bm?{bm,sx:(x&1)*256,sy:(y&1)*256}:null);
 }
 function orthoSrcName(){const c=META.center||[11.4,47.3], n=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]);
-  return n==="swisstopo"?"SWISSIMAGE swisstopo":n==="IGN"?"IGN":n==="Bayern"?"DOP Bayern":n==="basemap.at"||!n&&!window.MMMSrc?"basemap.at":"Sentinel-2 (EOX)"}
+  return n==="swisstopo"?"SWISSIMAGE swisstopo":n==="IGN"?"IGN":n==="Bayern"?"DOP Bayern":n==="basemap.at"||!n&&!window.MMMSrc?"basemap.at":c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8?"basemap.at, Sentinel-2":"Sentinel-2 (EOX)"}
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
@@ -1593,7 +1593,7 @@ if(REG){
     camera.position.copy(tg).add(new THREE.Vector3().setFromSpherical(new THREE.Spherical(cam[0],cam[2],cam[1])));
     camera.lookAt(tg); needsRender=true; scheduleLOD();
   } else { lookAt(gx,gy+180,30,"3d"); placeMarker(gx,gy) }
-  {const c=META.center||[0,0], sn=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]), tir=c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8&&(!window.MMMSrc||MMMSrc.country(c[0],c[1])==="AT");
+  {const c=META.center||[0,0], sn=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]), tir=c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8;
    const lbl=tir?"Laserscan Tirol":sn==="swisstopo"?"swissALTI3D":sn==="IGN"?"IGN RGE ALTI":"Gelände 30 m";
    $("subtitle").textContent=(META.name||"Alpen")+" · "+lbl}
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
