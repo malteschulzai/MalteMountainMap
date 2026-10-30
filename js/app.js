@@ -197,7 +197,7 @@ function rayTerrain(o,d){
 // Map gestures like Google Earth / FATMAP: grab-pan, pinch toward the fingers, twist to rotate,
 // two-finger vertical drag to tilt, wheel zooms toward the cursor, right-drag rotates, glide after a flick.
 function createControls(cam,dom){
-  const C={target:new THREE.Vector3(),maxPolarAngle:1.4,minDistance:0.25,maxDistance:170,_l:[],
+  const C={target:new THREE.Vector3(),maxPolarAngle:1.3,minDistance:0.25,maxDistance:170,_l:[],
     addEventListener(t,f){if(t==="change")this._l.push(f)},update(){return step()}};
   const emit=()=>C._l.forEach(f=>f());
   const ptr=new Map(), rc=new THREE.Raycaster(), nd=new THREE.Vector2(), UP=new THREE.Vector3(0,1,0), pl=new THREE.Plane();
@@ -221,12 +221,18 @@ function createControls(cam,dom){
     glide=false; vel.set(0,0,0);
     if(ptr.size===1){const p=[...ptr.values()][0];
       if(e&&e.pointerType==="mouse"&&(e.button===2||e.ctrlKey||e.shiftKey||e.altKey)){mode="rotate";last={x:p.x,y:p.y}}
-      else{mode="pan";const g=groundAt(p.x,p.y);grabH=g?g.y:C.target.y;grabPt=onPlane(p.x,p.y,grabH)}}
+      else{mode="pan";const g=groundAt(p.x,p.y);
+        // never grab on a plane at or above the camera (e.g. a summit seen from below a north face): drags would flip
+        const lim=cam.position.y-0.35*Math.max(0.05,cam.position.y-C.target.y);
+        grabH=Math.min(g?g.y:C.target.y,lim,C.target.y+0.6*(cam.position.y-C.target.y));grabPt=onPlane(p.x,p.y,grabH)}}
     else if(ptr.size>=2){mode="two";two=gest();lock=null;const g=groundAt(two.mx,two.my);two.h=g?g.y:C.target.y;two.sx=two.mx;two.sy=two.my;two.sd=two.d;two.sa=two.ang}
   }
   function move(){
     if(mode==="pan"){const p=[...ptr.values()][0],q=onPlane(p.x,p.y,grabH);
-      if(q&&grabPt){const dv=grabPt.clone().sub(q);dv.y=0;translate(dv);const now=performance.now();vel.lerp(dv,0.5);lastMove=now;finish()}}
+      if(q&&grabPt){const dv=grabPt.clone().sub(q);dv.y=0;
+        // near the horizon the plane hit runs away; cap each step so the view cannot be flung off
+        const d=cam.position.distanceTo(C.target), far=q.distanceTo(cam.position)>8*d+5;
+        if(!far){const L=dv.length(), mx=0.35*d+0.05; if(L>mx)dv.multiplyScalar(mx/L); translate(dv);const now=performance.now();vel.lerp(dv,0.5);lastMove=now;finish()}}}
     else if(mode==="rotate"){const p=[...ptr.values()][0];orbit(-(p.x-last.x)*0.006,(p.y-last.y)*0.005);last={x:p.x,y:p.y};finish()}
     else if(mode==="two"&&ptr.size>=2){
       const g=gest();
@@ -255,7 +261,7 @@ function createControls(cam,dom){
   dom.addEventListener("contextmenu",e=>e.preventDefault());
   function step(){
     let ch=false;
-    if(glide){translate(vel);vel.multiplyScalar(0.9);if(vel.length()<0.0005)glide=false;ch=true}
+    if(glide){const d=cam.position.distanceTo(C.target);if(vel.length()>0.15*d)vel.setLength(0.15*d);translate(vel);vel.multiplyScalar(0.9);if(vel.length()<0.0005)glide=false;ch=true}
     if(ptr.size===0){const g=groundY(C.target.x,C.target.z);if(g!==null&&Math.abs(g-C.target.y)>0.002){const d=(g-C.target.y)*0.12;C.target.y+=d;cam.position.y+=d;ch=true}}
     if(ch)finish(); else cam.lookAt(C.target);
     return ch;
@@ -790,7 +796,8 @@ function orthoUrls(mx0,mx1,my0,my1,z){
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++)out.push(tileUrl(z,tx,ty));
   return out;
 }
-const EOX_MAXZ=15, eoxUrl=(z,x,y)=>`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
+const MBT=(window.MMM_CONFIG||{}).mapboxToken||"";
+const EOX_MAXZ=MBT?19:15, eoxUrl=(z,x,y)=>MBT?`https://api.mapbox.com/v4/mapbox.satellite/${z}/${x}/${y}.jpg90?access_token=${MBT}`:`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
@@ -1476,7 +1483,7 @@ $("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,butt
 function goTo(lon,lat,name){saveState();const [sl,sb]=snap(lon,lat);location.href="./?at="+sl+","+sb+"&t="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
 // region centres sit on a ~2.3 km grid
 const snap=(lon,lat)=>[+(Math.round(lon/0.03)*0.03).toFixed(2),+(Math.round(lat/0.02)*0.02).toFixed(2)];
-const inArea=(lon,lat)=>lon>9.0&&lon<14.0&&lat>46.0&&lat<48.2;
+const inArea=(lon,lat)=>(window.MMM_CONFIG||{}).mapboxToken?(lon>5.0&&lon<16.9&&lat>43.5&&lat<48.5):(lon>9.0&&lon<14.0&&lat>46.0&&lat<48.2);
 const prefetched=new Map();
 function prefetch(lon,lat,onBytes){const k=lon+","+lat; if(!prefetched.has(k))prefetched.set(k,window.MMM_prefetchRegion(lon,lat,onBytes).catch(e=>({ok:false,err:e.message}))); return prefetched.get(k)}
 let searchTimer=null, searchSeq=0;
@@ -1485,7 +1492,8 @@ async function runSearch(q){
   if(q.trim().length<2){out.innerHTML="";return}
   out.innerHTML='<p class="hint">Suche …</p>';
   try{
-    const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=de&bounded=1&viewbox=10.05,47.80,12.98,46.62&q="+encodeURIComponent(q));
+    const vb=(window.MMM_CONFIG||{}).mapboxToken?"5.0,48.4,16.9,43.6":"10.05,47.80,12.98,46.62";
+    const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=de&bounded=1&viewbox="+vb+"&q="+encodeURIComponent(q));
     const list=await r.json(); if(my!==searchSeq)return;
     if(!list.length){out.innerHTML='<p class="hint">Nichts gefunden in Tirol. Versuch es mit einem Gipfel, Ort oder einer Hütte.</p>';return}
     out.innerHTML="";

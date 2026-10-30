@@ -58,22 +58,24 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
   return best;
 }
 // global terrain (Terrarium, ~25 m at z12) to fill everything outside the Land Tirol data
+const MBT=(window.MMM_CONFIG||{}).mapboxToken||"";
+const DEMZ=MBT?14:12;
 function terrUrls(z,mx0,mx1,my0,my1){
   const tileM=2*ORIGIN/2**z, out=[];
   for(let ty=Math.floor((ORIGIN-my1)/tileM);ty<=Math.floor((ORIGIN-my0)/tileM);ty++)
     for(let tx=Math.floor((mx0+ORIGIN)/tileM);tx<=Math.floor((mx1+ORIGIN)/tileM);tx++)
-      out.push({tx,ty,url:`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${tx}/${ty}.png`});
+      out.push({tx,ty,url:MBT&&z>=13?`https://api.mapbox.com/v4/mapbox.mapbox-terrain-dem-v1/${z}/${tx}/${ty}.pngraw?access_token=${MBT}`:`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${tx}/${ty}.png`});
   return out;
 }
 async function terrariumGrid(mx0,mx1,my0,my1,nx,ny){
-  const z=12, tileM=2*ORIGIN/2**z, list=terrUrls(z,mx0,mx1,my0,my1);
+  const z=DEMZ, tileM=2*ORIGIN/2**z, list=terrUrls(z,mx0,mx1,my0,my1), mb=MBT&&z>=13;
   const tx0=Math.min(...list.map(t=>t.tx)), ty0=Math.min(...list.map(t=>t.ty)), tw=Math.max(...list.map(t=>t.tx))-tx0+1, th=Math.max(...list.map(t=>t.ty))-ty0+1;
   const cv=document.createElement("canvas"); cv.width=tw*256; cv.height=th*256;
   const ctx=cv.getContext("2d",{willReadFrequently:true}); let ok=0;
   await Promise.all(list.map(t=>cachedFetch(t.url).then(b=>createImageBitmap(new Blob([b]))).then(bm=>{ctx.drawImage(bm,(t.tx-tx0)*256,(t.ty-ty0)*256);ok++;urls.push(t.url)}).catch(()=>{})));
   if(ok<list.length)return null;
   const px=ctx.getImageData(0,0,cv.width,cv.height).data, W=cv.width, cell=tileM/256, ox=tx0*tileM-ORIGIN, oy=ORIGIN-ty0*tileM;
-  const at=(x,y)=>{x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(cv.height-1,y));const i=(y*W+x)*4;return px[i]*256+px[i+1]+px[i+2]/256-32768};
+  const at=(x,y)=>{x=Math.max(0,Math.min(W-1,x));y=Math.max(0,Math.min(cv.height-1,y));const i=(y*W+x)*4;return mb?-10000+(px[i]*65536+px[i+1]*256+px[i+2])*0.1:px[i]*256+px[i+1]+px[i+2]/256-32768};
   const out=new Float32Array(nx*ny);
   for(let j=0;j<ny;j++){const my=my1-(j+0.5)*(my1-my0)/ny, fy=(oy-my)/cell-0.5, y=Math.floor(fy), ay=fy-y;
     for(let i=0;i<nx;i++){const mx=mx0+(i+0.5)*(mx1-mx0)/nx, fx=(mx-ox)/cell-0.5, x=Math.floor(fx), ax=fx-x;
@@ -136,7 +138,7 @@ window.MMM_prefetchRegion=async(lon,lat,onBytes)=>{
   const f=frame(lon,lat), zone=lon<11.75?28:31;
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
-           ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(12,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
+           ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(DEMZ,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
   let err="";
   const res=await Promise.all(u.map((x,i)=>cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
   // outside Tirol the Land Tirol request may fail, the global terrain is enough then
@@ -148,11 +150,12 @@ if(!isFinite(lon)||!isFinite(lat))return;
 const name=(qs.get("n")||"").slice(0,80);
 window.MMM_REGION_PROMISE=(async()=>{
   const {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0}=frame(lon,lat);
-  say("Gelände wird geladen …");
+  say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":"Gelände außerhalb von Tirol wird geladen …");
   const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
   const VW=W/2, VH=H/2;
-  const domP=sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
-  const dgmR=await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
+  const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
+  const domP=!tirol?Promise.resolve(null):sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
+  const dgmR=!tirol?null:await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
   const terr=await terrP;
   if(!dgmR&&!terr)throw new Error("Für diesen Ort konnten keine Geländedaten geladen werden. Prüfe die Verbindung und versuche es nochmal.");
   const dgm=dgmR?dgmR.data:new Float32Array(W*H).fill(NaN);
