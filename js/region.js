@@ -209,7 +209,7 @@ async function buildRegion(lon,lat,name,sayFn){
 root.MMM_buildRegion=buildRegion;
 
 // ---- built areas: packed, gzipped and kept in the Cache API, so switching is quick ----
-const BUILD_V="b1", BUILT="mmm-built";
+const BUILD_V="b1", BUILT="mmm-built", KEEP="mmm-built-keep";
 const builtKey=(lon,lat)=>`https://linefinder.local/built/${BUILD_V}/${(+lon).toFixed(2)},${(+lat).toFixed(2)}`;
 async function gz(u8,pack){
   if(typeof CompressionStream==="undefined")return null;
@@ -233,7 +233,7 @@ async function storeBuilt(lon,lat,r){
 async function loadBuilt(lon,lat){
   try{
     if(typeof DecompressionStream==="undefined")return null;
-    const c=await caches.open(BUILT), hit=await c.match(builtKey(lon,lat)); if(!hit)return null;
+    const hit=(await (await caches.open(BUILT)).match(builtKey(lon,lat)))||(await (await caches.open(KEEP)).match(builtKey(lon,lat))); if(!hit)return null;
     const u=await gz(new Uint8Array(await hit.arrayBuffer()),false), dv=new DataView(u.buffer,u.byteOffset,u.byteLength);
     const pad=o=>o+((8-o%8)%8);
     const hl=dv.getUint32(0,true), head=JSON.parse(new TextDecoder().decode(u.subarray(4,4+hl)));
@@ -288,6 +288,15 @@ window.MMM_prefetchRegion=async(lon,lat,onProgress)=>{
   try{await ensureBuilt(lon,lat,"",m=>{const n=/(\d+) %/.exec(m||"");if(onProgress&&n)onProgress(+n[1])}); return {ok:true,err:""}}
   catch(e){return {ok:false,err:e.message||String(e)}}
 };
+// offline areas: keep a built area permanently (not pruned with the recent ones)
+window.MMM_keepRegion=async(lon,lat,onProgress)=>{
+  await ensureBuilt(lon,lat,"",m=>{const n=/(\d+) %/.exec(m||"");if(onProgress&&n)onProgress(+n[1])});
+  const key=builtKey(lon,lat), keep=await caches.open(KEEP);
+  if(await keep.match(key))return true;
+  const hit=await (await caches.open(BUILT)).match(key); if(!hit)throw new Error("Bereich konnte nicht gespeichert werden");
+  await keep.put(key,hit); return true;
+};
+window.MMM_dropRegion=async(lon,lat)=>{try{await (await caches.open(KEEP)).delete(builtKey(lon,lat))}catch(e){}};
 const qs=new URLSearchParams(location.search), at=qs.get("at");
 if(!at)return;
 const parts=at.split(",").map(Number), lon=parts[0], lat=parts[1];

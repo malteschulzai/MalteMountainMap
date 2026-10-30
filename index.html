@@ -92,6 +92,18 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .loading{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;font:600 16px var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:#3b4640}
 .snap{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;pointer-events:none;transition:opacity .7s ease}
 .map.snapping .loading{inset:auto;top:64px;left:50%;transform:translateX(-50%);z-index:2;background:rgba(255,255,255,.92);border-radius:999px;padding:8px 16px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.me{position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 6px rgba(26,115,232,.25),0 1px 4px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none}
+.pmark{position:absolute;left:0;top:0;transform:translate(-50%,-100%);pointer-events:none;font:700 11px/1 var(--font-body);color:#fff;background:#2e9d4f;border:2px solid #fff;border-radius:999px;padding:4px 7px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.pmark.goal{background:#1b2420}
+.tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
+.offsel{position:absolute;inset:0;z-index:6;pointer-events:none}
+.offframe{position:absolute;left:8%;right:8%;top:16%;bottom:34%;border:3px solid #1a73e8;border-radius:6px;box-shadow:0 0 0 4000px rgba(10,20,30,.28)}
+.offbar{position:absolute;left:12px;right:12px;bottom:12px;pointer-events:auto;background:var(--panel);color:var(--ink);border-radius:14px;padding:12px;box-shadow:0 4px 16px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:8px;max-width:520px;margin:0 auto}
+.offbar select{font:500 14px var(--font-body);padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--chip);color:var(--ink)}
+.offitem{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.offitem b{display:block;font-size:14px}
+.aspects{display:grid;grid-template-columns:repeat(4,auto);gap:6px;justify-content:start}
+.aspects .chip{padding:7px 10px;min-width:42px}
 .drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--panel) 70%,transparent);font-weight:600}
 
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;max-height:72%;background:var(--panel);border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.2);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -148,7 +160,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
   <div class="map" id="map">
     <div class="loading" id="loading">Gelände wird geladen …</div>
     <script>try{var q=new URLSearchParams(location.search),s=sessionStorage.getItem("mmm-snap");sessionStorage.removeItem("mmm-snap");if(s&&q.has("t")){var i=document.createElement("img");i.className="snap";i.id="snap";i.alt="";i.src=s;var m=document.getElementById("map");m.appendChild(i);m.classList.add("snapping")}}catch(e){}</script>
-    <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 14 34" aria-hidden="true"><path d="M7 12v20" stroke="#5b6166" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="7" r="5.6" fill="#e0242a" stroke="#8c0d12" stroke-width="1"/><circle cx="5.2" cy="5.2" r="1.7" fill="#fff" opacity=".75"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div></div>
+    <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 14 34" aria-hidden="true"><path d="M7 12v20" stroke="#5b6166" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="7" r="5.6" fill="#e0242a" stroke="#8c0d12" stroke-width="1"/><circle cx="5.2" cy="5.2" r="1.7" fill="#fff" opacity=".75"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div><div class="pmark" id="pStart" hidden>Start</div><div class="pmark goal" id="pGoal" hidden>Ziel</div><div class="me" id="me" hidden></div></div>
     <div class="status" id="status">Luftbild: basemap.at</div>
     <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
     <div class="pad" id="pad" hidden>
@@ -163,9 +175,18 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <button class="tool" id="view3d" title="Schräge 3D-Ansicht" aria-label="3D-Ansicht">3D</button>
       <button class="tool" id="view2d" title="Von oben, Norden oben" aria-label="Draufsicht">2D</button>
       <button class="tool" id="fit" title="Auf Spur zoomen" aria-label="Auf Spur zoomen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button class="tool" id="locate" title="Mein Standort" aria-label="Mein Standort" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
     </div>
     <button class="here" id="loadHere" hidden>Diesen Bereich laden</button>
     <div class="drop" id="drop" hidden>GPX-Datei hier ablegen</div>
+    <div class="offsel" id="offSel" hidden>
+      <div class="offframe" id="offFrame"></div>
+      <div class="offbar">
+        <div><b>Bereich für offline wählen</b><div class="hint" id="offInfo">Schiebe und zoome die Karte, bis der gewünschte Bereich im Rahmen liegt.</div></div>
+        <div class="row"><select id="offDetail" aria-label="Schärfe des Luftbilds"><option value="16">Luftbild Standard</option><option value="17">Luftbild scharf</option></select>
+          <button class="btn" id="offCancel">Abbrechen</button><button class="btn primary" id="offGo">Herunterladen</button></div>
+      </div>
+    </div>
   </div>
 
   <aside class="sheet" aria-label="Ebenen und Einstellungen">
@@ -264,20 +285,40 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <div id="pointInfo"><p class="hint">Tippe ins Gelände, um Höhe, Hangneigung und Exposition an dieser Stelle zu sehen.</p></div>
       </div>
 
+      <div class="sec" id="planSec">
+        <h2>Tour planen</h2>
+        <p class="hint">Setze Start und Ziel, dann sucht die App den Weg mit möglichst wenig Lawinengelände und angenehmer Steilheit. Gib dazu die Gefahrenstufe und die Kernzone aus dem Lawinenlagebericht an.</p>
+        <div class="row" style="margin:8px 0"><button class="btn primary" id="planPick">Start und Ziel setzen</button><button class="btn" id="planSwap">Tauschen</button></div>
+        <div class="wctl">
+          <label for="planDl">Gefahrenstufe</label>
+          <select id="planDl"><option value="1">1 gering</option><option value="2" selected>2 mäßig</option><option value="3">3 erheblich</option><option value="4">4 groß</option></select>
+          <span>Kernzone</span>
+          <div class="aspects" role="group" aria-label="Kritische Expositionen">
+            <button class="chip" data-asp="7" aria-pressed="false">NW</button><button class="chip" data-asp="0" aria-pressed="false">N</button><button class="chip" data-asp="1" aria-pressed="false">NO</button><button class="chip" data-asp="2" aria-pressed="false">O</button>
+            <button class="chip" data-asp="6" aria-pressed="false">W</button><button class="chip" data-asp="5" aria-pressed="false">SW</button><button class="chip" data-asp="4" aria-pressed="false">S</button><button class="chip" data-asp="3" aria-pressed="false">SO</button>
+          </div>
+          <label for="planElev">Kernzone ab</label>
+          <div class="rng"><input type="range" id="planElev" min="0" max="3200" step="100" value="0"><output id="planElevOut">alle Höhen</output></div>
+          <label for="planW">Gewichtung</label>
+          <div class="rng"><input type="range" id="planW" min="0.3" max="3" step="0.1" value="1"><output id="planWOut">ausgewogen</output></div>
+        </div>
+        <div class="row"><button class="btn" id="planRun">Route berechnen</button></div>
+        <p class="hint" id="planStatus" aria-live="polite"></p>
+      </div>
+
       <div class="sec" id="routeSec">
         <h2>Spur</h2>
         <div id="routeInfo"></div>
       </div>
 
       <div class="sec">
-        <h2>Offline und App</h2>
-        <p class="hint">Speichert Luftbild, Schummerung und Gelände des geladenen Bereichs auf dem Gerät. Danach funktioniert die Karte auch ohne Empfang.</p>
+        <h2>Offline-Karten</h2>
+        <p class="hint">Wähle in der Draufsicht einen Bereich. Gelände, Wald und Luftbild werden auf dem Gerät gespeichert, danach funktioniert die Karte dort ohne Empfang.</p>
         <div class="row" style="margin-top:8px">
-          <button class="btn" id="saveStd">Offline speichern (ca. 60 MB)</button>
-          <button class="btn" id="saveMax">Maximale Schärfe (ca. 200 MB)</button>
-          <button class="btn" id="clearOffline">Löschen</button>
-          <button class="btn primary" id="installBtn" hidden>Als App installieren</button>
+          <button class="btn primary" id="offPick">Bereich auswählen</button>
+          <button class="btn" id="installBtn" hidden>Als App installieren</button>
         </div>
+        <div id="offList"></div>
         <p class="hint" id="offlineStatus" style="margin-top:6px" aria-live="polite"></p>
       </div>
 
@@ -295,12 +336,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=32"></script>
-<script src="js/config.js?v=32"></script>
-<script src="js/geo.js?v=32"></script>
-<script src="js/borders.js?v=32"></script>
-<script src="js/sources.js?v=32"></script>
-<script src="js/region.js?v=32"></script>
-<script src="js/app.js?v=32"></script>
+<script src="data/nordkette-meta.js?v=33"></script>
+<script src="js/config.js?v=33"></script>
+<script src="js/geo.js?v=33"></script>
+<script src="js/borders.js?v=33"></script>
+<script src="js/sources.js?v=33"></script>
+<script src="js/region.js?v=33"></script>
+<script src="js/app.js?v=33"></script>
 </body>
 </html>

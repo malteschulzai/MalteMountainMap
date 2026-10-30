@@ -1178,6 +1178,10 @@ function updateLabels(){
   const show=state.route&&route&&route.ends;
   $("rStart").hidden=!show; $("rEnd").hidden=!show;
   if(show){project(route.ends[0].gx,route.ends[0].gy,$("rStart"),0.05);project(route.ends[1].gx,route.ends[1].gy,$("rEnd"),0.05)}
+  const pl=typeof plan!=="undefined"?plan:null;
+  $("pStart").hidden=!(pl&&pl.s&&(pl.pick||!route||!route.plan)); if(!$("pStart").hidden)project(pl.s[0],pl.s[1],$("pStart"),0.05);
+  $("pGoal").hidden=!(pl&&pl.g&&(pl.pick||!route||!route.plan)); if(!$("pGoal").hidden)project(pl.g[0],pl.g[1],$("pGoal"),0.05);
+  if(typeof me!=="undefined"&&me&&!$("me").hidden){const g=[lonToX(me.lon),latToY(me.lat)];project(g[0],g[1],$("me"),0.05)}
 }
 
 // ---------- Globe: drag to turn and tilt, tap to face north ----------
@@ -1245,6 +1249,7 @@ renderer.domElement.addEventListener("pointerup",e=>{
   ray.setFromCamera(ndc,camera);
   const hp=rayTerrain(ray.ray.origin,ray.ray.direction); if(!hp)return;
   const gx=hp.x/sc+W/2, gy=hp.z/sc+H/2;
+  if(plan.pick){planTap(gx,gy);return}
   lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy);
 });
 const SAC_NAME=["","T1 Wanderweg","T2 Bergweg","T3 anspruchsvoller Bergweg","T4 Alpinwanderung","T5 anspruchsvolle Alpinwanderung","T6 schwierige Alpinwanderung"];
@@ -1280,9 +1285,12 @@ function buildRouteLine(){
   if(!route||!state.route){needsRender=true;return}
   const p=[]; route.samples.forEach(s=>{p.push((s.gx-W/2)*sc, s.e/U*state.exag+0.09, (s.gy-H/2)*sc)});
   const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
+  const risk=route.risk, col=[];
+  if(risk)risk.forEach(v=>{const c=new THREE.Color(RISK_COL(v));col.push(c.r,c.g,c.b)});
   [[0xffffff,7],[0x1d4ed8,4]].forEach(([color,lw],i)=>{
     const g=new THREE.LineGeometry(); g.setPositions(p);
-    const m=new THREE.LineMaterial({color,linewidth:lw,resolution:res,depthTest:true,depthWrite:i>0});
+    const vc=!!(risk&&i>0); if(vc)g.setColors(col);
+    const m=new THREE.LineMaterial({color:vc?0xffffff:color,vertexColors:vc,linewidth:lw,resolution:res,depthTest:true,depthWrite:i>0});
     const l=new THREE.Line2(g,m); l.computeLineDistances(); l.renderOrder=1+i; scene.add(l); routeLines.push(l);
   });
   needsRender=true;
@@ -1294,7 +1302,7 @@ function setRoute(lonlat,name,tag){
   const inside=pts.filter(p=>p.inside);
   if(inside.length<2){
     route=null; buildRouteLine();
-    $("routeInfo").innerHTML=`<p class="warn">Diese Spur liegt außerhalb des Kartenausschnitts. Die Testregion reicht von Innsbruck bis zum Nordkettenkamm, etwa von der Frau Hitt bis östlich vom Hafelekar.</p>`;
+    $("routeInfo").innerHTML=`<p class="warn">Diese Spur liegt außerhalb des geladenen Bereichs. Suche den Ort oben in der Suche und lade die Spur dort nochmal.</p>`;
     return;
   }
   const samples=[]; let dist=0;
@@ -1332,9 +1340,13 @@ function renderRouteInfo(){
      <div class="stat"><b>${fmt(Math.round(st.maxS))}°</b><span>Steilster Hang</span></div>
      <div class="stat"><b>${share}</b><span>Strecke ab 30°</span></div>
    </div>
+   ${r.plan?`<div class="point" style="margin-bottom:8px"><span class="pill" style="background:${RISK_COL(r.plan.score)};color:#fff">Lawinenrisiko ${r.plan.score<1?"gering":r.plan.score<2?"erhöht":"hoch"}</span><span class="sub">Mittel der heikelsten 250 m</span></div>
+   <div class="row" style="margin-bottom:8px"><button class="btn" id="gpxOut">Als GPX speichern</button></div>
+   <p class="hint" style="margin-bottom:8px">Automatisch aus Gelände, Gefahrenstufe und Kernzone berechnet, ohne Schneedecke, Wind und Tageszeit. Ersetzt nicht den Lawinenlagebericht und die Beurteilung vor Ort.</p>`:""}
    <div class="profile" id="profile"></div>
    <div class="readout" id="readout">Fahre über das Profil, um die Stelle auf der Karte zu sehen.</div>`;
   $("clearRoute").onclick=()=>{route=null;buildRouteLine();$("routeInfo").innerHTML='<p class="hint">Lade eine GPX-Datei, um Profil und Hangneigung entlang der Spur zu sehen.</p>'};
+  if(r.plan)$("gpxOut").onclick=downloadGpx;
   drawProfile();
 }
 function niceStep(range,target){const raw=range/target,p=Math.pow(10,Math.floor(Math.log10(raw)));const m=raw/p;return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p}
@@ -1352,7 +1364,10 @@ function drawProfile(){
   const xs=niceStep(dMax/1000,4);let xt="";for(let k=0;k<=dMax/1000+1e-6;k+=xs){xt+=`<text x="${X(k*1000)}" y="${Hd-4}" text-anchor="middle">${fmt(k,xs<1?1:0)} km</text>`}
   let rects="",run=null;const sy=mt+ph+4;const cols=["var(--s30)","var(--s35)","var(--s40)","var(--s45)"];
   const seg=(r,dEnd)=>`<rect x="${X(r.d).toFixed(1)}" y="${sy}" width="${Math.max(0.5,X(dEnd)-X(r.d)).toFixed(1)}" height="${strip}" fill="${r.c<0?"var(--chip)":cols[r.c]}"/>`;
-  S.forEach(s=>{const c=slopeClass(s.s);if(!run||run.c!==c){if(run)rects+=seg(run,s.d);run={c,d:s.d}}});
+  if(route.risk){const rc=["#2e9d4f","#ee8a2b","#d7301f"];
+    S.forEach((s,i)=>{const c=route.risk[i]<1?0:route.risk[i]<2?1:2;if(!run||run.c!==c){if(run)rects+=`<rect x="${X(run.d).toFixed(1)}" y="${sy}" width="${Math.max(0.5,X(s.d)-X(run.d)).toFixed(1)}" height="${strip}" fill="${rc[run.c]}"/>`;run={c,d:s.d}}});
+    if(run)rects+=`<rect x="${X(run.d).toFixed(1)}" y="${sy}" width="${Math.max(0.5,X(dMax)-X(run.d)).toFixed(1)}" height="${strip}" fill="${rc[run.c]}"/>`; run=null;
+  } else S.forEach(s=>{const c=slopeClass(s.s);if(!run||run.c!==c){if(run)rects+=seg(run,s.d);run={c,d:s.d}}});
   if(run)rects+=seg(run,dMax);
   box.innerHTML=`<svg viewBox="0 0 ${Wd} ${Hd}" role="img" aria-label="Höhenprofil der Spur">
     ${grid}<path d="${area}" fill="var(--accent)" fill-opacity=".14"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
@@ -1487,43 +1502,213 @@ let lineTimer=null;
 setLineOut();
 $("wind").onchange=async e=>{state.wind=e.target.value;await computeWinter();applyUniforms()};
 
-// ---------- Offline storage and app install ----------
-const OFFLINE_CACHE="mmm-offline-v1";
-function offlineUrls(maxZ){
+// ---------- My position ----------
+const meEl=$("me"), locBtn=$("locate");
+let me=null, meWatch=null;
+const meGrid=()=>me?[lonToX(me.lon),latToY(me.lat)]:null;
+function stopLocate(){if(meWatch!==null)navigator.geolocation.clearWatch(meWatch);meWatch=null;me=null;meEl.hidden=true;locBtn.setAttribute("aria-pressed","false");needsRender=true}
+function centerOnMe(){
+  const g=meGrid(); if(!g)return;
+  const t=gridToWorld(g[0],g[1]), off=camera.position.clone().sub(controls.target);
+  if(off.length()>40)off.setLength(30);
+  controls.target.copy(t); camera.position.copy(t).add(off); controls.update(); needsRender=true; scheduleLOD(); checkHere();
+}
+function startLocate(){
+  if(!navigator.geolocation){statusEl.textContent="Dieser Browser kann den Standort nicht bestimmen.";return}
+  locBtn.setAttribute("aria-pressed","true"); statusEl.textContent="Standort wird gesucht …";
+  meWatch=navigator.geolocation.watchPosition(p=>{
+    const first=!me; me={lon:p.coords.longitude,lat:p.coords.latitude,acc:p.coords.accuracy};
+    const [gx,gy]=meGrid(), inside=gx>=1&&gy>=1&&gx<W-2&&gy<H-2;
+    if(!inside){
+      if(first&&inArea(me.lon,me.lat)){try{sessionStorage.setItem("lf-locate","1")}catch(e){} goTo(me.lon,me.lat,"Mein Standort");return}
+      if(first){statusEl.textContent="Dein Standort liegt außerhalb der Alpen-Karte.";stopLocate()}
+      meEl.hidden=true; return;
+    }
+    meEl.hidden=false;
+    statusEl.textContent=`Standort ±${fmt(Math.round(me.acc))} m · ${fmt(Math.round(heightGrid(gx,gy)))} m`;
+    if(first)centerOnMe(); needsRender=true;
+  },err=>{statusEl.textContent=err.code===1?"Standort-Zugriff wurde nicht erlaubt. Du kannst ihn in den Browser-Einstellungen freigeben.":"Standort gerade nicht verfügbar.";stopLocate()},
+  {enableHighAccuracy:true,maximumAge:5000,timeout:30000});
+}
+// first tap: find and centre, next tap: centre again, tap on a centred view: switch off
+locBtn.onclick=()=>{
+  if(meWatch===null){startLocate();return}
+  if(!me)return;
+  const g=meGrid(), [tx,ty]=targetGrid();
+  if(Math.hypot(g[0]-tx,g[1]-ty)*CELL<15)stopLocate(); else centerOnMe();
+};
+try{if(sessionStorage.getItem("lf-locate")){sessionStorage.removeItem("lf-locate");setTimeout(startLocate,300)}}catch(e){}
+
+// ---------- Tour planner (route with as little avalanche terrain as possible) ----------
+const plan={s:null,g:null,pick:0,core:[0,0,0,0,0,0,0,0]};
+let planWorker=null, planReady=null, planBusy=false;
+const pStart=$("pStart"), pGoal=$("pGoal"), planStatus=$("planStatus");
+function getPlanner(){
+  if(planReady)return planReady;
+  planReady=(async()=>{
+    const v=await vegPromise;
+    const w=new Worker("js/planner-worker.js?v="+APPV);
+    const cellRow=new Float32Array(H); for(let y=0;y<H;y++)cellRow[y]=cellAt(y);
+    const veg=v&&META.veg&&META.veg.W===W>>1&&META.veg.H===H>>1?v:null;
+    await new Promise((res,rej)=>{w.onmessage=e=>e.data.ready?res():rej(new Error(e.data.err||"Planer"));w.onerror=e=>rej(new Error(e.message||"Planer"));
+      w.postMessage({prep:true,dm,W,H,cellRow,veg})});
+    planWorker=w; return w;
+  })();
+  planReady.catch(()=>{planReady=null});
+  return planReady;
+}
+const DLW={0.3:"möglichst kurz",1:"ausgewogen",3:"möglichst sicher"};
+function planUI(){
+  $("planElevOut").textContent=+$("planElev").value>0?fmt(+$("planElev").value)+" m":"alle Höhen";
+  const w=+$("planW").value; $("planWOut").textContent=w<0.7?"eher kurz":w<1.6?"ausgewogen":"eher sicher";
+  document.querySelectorAll("[data-asp]").forEach(b=>b.setAttribute("aria-pressed",plan.core[+b.dataset.asp]?"true":"false"));
+  $("planPick").textContent=plan.pick===1?"Start antippen …":plan.pick===2?"Ziel antippen …":"Start und Ziel setzen";
+}
+document.querySelectorAll("[data-asp]").forEach(b=>b.onclick=()=>{const a=+b.dataset.asp;plan.core[a]=plan.core[a]?0:1;planUI()});
+$("planElev").oninput=planUI; $("planW").oninput=planUI;
+$("planPick").onclick=()=>{plan.pick=1;plan.s=plan.g=null;planUI();setSheet(false);statusEl.textContent="Tippe den Startpunkt in die Karte";needsRender=true;getPlanner().catch(()=>{})};
+$("planSwap").onclick=()=>{if(!plan.s||!plan.g)return;[plan.s,plan.g]=[plan.g,plan.s];runPlan()};
+$("planRun").onclick=()=>runPlan();
+function planTap(gx,gy){
+  if(plan.pick===1){plan.s=[gx,gy];plan.pick=2;statusEl.textContent="Jetzt das Ziel antippen";planUI();needsRender=true;return}
+  plan.g=[gx,gy]; plan.pick=0; planUI(); needsRender=true; runPlan();
+}
+async function runPlan(){
+  if(!plan.s||!plan.g){planStatus.textContent="Setze zuerst Start und Ziel.";return}
+  if(planBusy)return; planBusy=true;
+  planStatus.textContent="Route wird berechnet …"; statusEl.textContent="Route wird berechnet …";
+  try{
+    const w=await getPlanner(), dl=+$("planDl").value;
+    const res=await new Promise((ok,bad)=>{w.onmessage=e=>{if(e.data.progress!==undefined)return;e.data.err?bad(new Error(e.data.err)):ok(e.data)};
+      w.postMessage({s:plan.s.map(v=>Math.max(0,Math.floor(v/2))),g:plan.g.map(v=>Math.max(0,Math.floor(v/2))),dl,core:plan.core,coreElev:+$("planElev").value,weight:+$("planW").value})});
+    const pts=res.pts, ll=pts.map(p=>[xToLon(p[0]),yToLat(p[1])]);
+    setRoute(ll,"Geplante Tour",`Gefahrenstufe ${dl}${plan.core.some(Boolean)?", Kernzone "+["N","NO","O","SO","S","SW","W","NW"].filter((_,i)=>plan.core[i]).join(" ")+(+$("planElev").value>0?" ab "+fmt(+$("planElev").value)+" m":""):""}`);
+    if(route){
+      // indicator per sample: nearest point of the computed path, walking forward
+      let j=0; route.risk=route.samples.map(s=>{while(j<pts.length-1&&Math.hypot(pts[j+1][0]-s.gx,pts[j+1][1]-s.gy)<=Math.hypot(pts[j][0]-s.gx,pts[j][1]-s.gy))j++;return pts[j][2]});
+      // like Skitourenguru: mean indicator of the riskiest ~250 m of the route
+      const segs=route.samples.map((s,i)=>[route.risk[i],i?s.d-route.samples[i-1].d:0]).sort((a,b)=>b[0]-a[0]);
+      let L=0,sum=0; for(const [v,d] of segs){if(L>=250)break;const t=Math.min(d,250-L);sum+=v*t;L+=t}
+      route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo(); fitRoute("3d"); setSheet(true);
+      $("routeSec").scrollIntoView({block:"start",behavior:"smooth"});
+    }
+    planStatus.textContent=""; statusEl.textContent="Luftbild: "+orthoSrcName();
+  }catch(e){planStatus.textContent="Keine Route gefunden: "+e.message; statusEl.textContent="Route nicht gefunden"}
+  planBusy=false;
+}
+const RISK_COL=v=>v<1?"#2e9d4f":v<2?"#ee8a2b":"#d7301f";
+function gpxText(){
+  const r=route, pts=r.samples.filter((s,i)=>i%2===0||i===r.samples.length-1);
+  const esc=s=>String(s).replace(/[<&>]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;"}[c]));
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Linefinder" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(r.name)}</name><trkseg>\n`+
+    pts.map(s=>`<trkpt lat="${yToLat(s.gy).toFixed(6)}" lon="${xToLon(s.gx).toFixed(6)}"><ele>${s.e.toFixed(1)}</ele></trkpt>`).join("\n")+`\n</trkseg></trk>\n</gpx>\n`;
+}
+function downloadGpx(){
+  const b=new Blob([gpxText()],{type:"application/gpx+xml"}), a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download=(route.name||"Tour").replace(/[^\wäöüÄÖÜß -]/g,"")+".gpx"; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
+}
+planUI();
+
+// ---------- Offline areas: choose a frame in the top view, store terrain and imagery ----------
+const OFFLINE_CACHE="mmm-offline-v1", offSel=$("offSel"), offInfo=$("offInfo");
+const EOX=(z,x,y)=>`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`;
+function loadAreas(){try{return JSON.parse(localStorage.getItem("lf-offline")||"[]")}catch(e){return []}}
+function saveAreas(a){try{localStorage.setItem("lf-offline",JSON.stringify(a))}catch(e){}}
+function screenLonLat(px,py){
+  const r=renderer.domElement.getBoundingClientRect();
+  ndc.set((px-r.left)/r.width*2-1,-(py-r.top)/r.height*2+1); ray.setFromCamera(ndc,camera);
+  const hit=new THREE.Vector3(); if(!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-controls.target.y),hit))return null;
+  return [xToLon(hit.x/sc+W/2),yToLat(hit.z/sc+H/2)];
+}
+function frameBox(){
+  const f=$("offFrame").getBoundingClientRect(), a=screenLonLat(f.left,f.top), b=screenLonLat(f.right,f.bottom);
+  if(!a||!b)return null;
+  return {lon0:Math.min(a[0],b[0]),lon1:Math.max(a[0],b[0]),lat0:Math.min(a[1],b[1]),lat1:Math.max(a[1],b[1])};
+}
+const lonM=lon=>R*lon*Math.PI/180, latM=lat=>R*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));
+function tileRange(b,z){const n=2**z, f=lon=>Math.floor((lon+180)/360*n), g=lat=>{const r=lat*Math.PI/180;return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n)};
+  return [f(b.lon0),f(b.lon1),g(b.lat1),g(b.lat0)]}
+function areaTileUrl(z,x,y){
+  const n=2**z, lon=(x+0.5)/n*360-180, lat=Math.atan(Math.sinh(Math.PI*(1-2*(y+0.5)/n)))*180/Math.PI;
+  const nat=window.MMMSrc&&MMMSrc.orthoUrl(z,x,y); if(nat)return nat;
+  const c=window.MMMSrc&&MMMSrc.country(lon,lat);
+  if(c==="AT")return tileUrl(z,x,y);
+  return z<=15?EOX(z,x,y):null;
+}
+function areaPlan(b,maxZ){
+  // areas are built on a ~7.6 x 6.7 km grid of region centres
+  const midLat=(b.lat0+b.lat1)/2, stepLon=7.6/(111.32*Math.cos(midLat*Math.PI/180)), stepLat=6.7/111.32;
+  const nx=Math.max(1,Math.ceil((b.lon1-b.lon0)/stepLon)), ny=Math.max(1,Math.ceil((b.lat1-b.lat0)/stepLat)), regions=[], seen=new Set();
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const lon=b.lon0+(i+0.5)*(b.lon1-b.lon0)/nx, lat=b.lat0+(j+0.5)*(b.lat1-b.lat0)/ny, s=snap(lon,lat), k=s.join(",");
+    if(!seen.has(k)){seen.add(k);regions.push(s)}}
   const urls=new Set();
-  ["./","index.html","js/app.js?v="+APPV,"js/geo.js?v="+APPV,"js/region.js?v="+APPV,"data/nordkette-meta.js?v="+APPV,"manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"].forEach(u=>urls.add(new URL(u,location.href).href));
-  if(REG){urls.add(location.href);REG.urls.forEach(u=>urls.add(u))}
-  else ["data/nordkette-dem.txt?v="+APPV,"data/nordkette-veg.txt?v="+APPV,"data/nordkette-trees.txt?v="+APPV,"data/context-dem.txt?v="+APPV].forEach(u=>urls.add(new URL(u,location.href).href));
-  [...document.querySelectorAll("script[src],link[rel=stylesheet]")].forEach(e=>urls.add(e.src||e.href));
-  const ex0=G.x0, ex1=G.x0+W*G.cell, ey1=G.y1, ey0=G.y1-H*G.cell;
-  orthoUrls(ex0,ex1,ey0,ey1,15).forEach(u=>urls.add(u));
-  if(CG)orthoUrls(CG.x0,CG.x0+CG.W*CG.cell,CG.y1-CG.H*CG.cell,CG.y1,12).forEach(u=>urls.add(u));
-  urls.delete(undefined);
-  {const w=Math.min(4096,MAXTEX);shadeUrls(ex0,ex1,ey0,ey1,w,Math.round(w*H/W)).forEach(u=>urls.add(u))}
-  for(let z=16;z<=maxZ;z++)for(const c of chunks){
-    orthoUrls(c.mx0,c.mx1,c.my0,c.my1,z).forEach(u=>urls.add(u));
-    const res=2*ORIGIN/2**z/256; shadeUrls(c.mx0,c.mx1,c.my0,c.my1,Math.ceil((c.mx1-c.mx0)/res),Math.ceil((c.my1-c.my0)/res)).forEach(u=>urls.add(u));
+  for(let z=11;z<=maxZ;z++){const [x0,x1,y0,y1]=tileRange(b,z);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const u=areaTileUrl(z,x,y);if(u)urls.add(u)}}
+  // surroundings (z12, ±30 km) and far horizon terrain (z8, ±130 km)
+  const pad=(b,km)=>{const dl=km/(111.32*Math.cos(midLat*Math.PI/180)),dt=km/111.32;return {lon0:b.lon0-dl,lon1:b.lon1+dl,lat0:b.lat0-dt,lat1:b.lat1+dt}};
+  {const bb=pad(b,30),[x0,x1,y0,y1]=tileRange(bb,12);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const u=areaTileUrl(12,x,y);if(u)urls.add(u)}}
+  {const bb=pad(b,130),[x0,x1,y0,y1]=tileRange(bb,8);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)urls.add(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/8/${x}/${y}.png`)}
+  const km=[(lonM(b.lon1)-lonM(b.lon0))*Math.cos(midLat*Math.PI/180)/1000,(latM(b.lat1)-latM(b.lat0))*Math.cos(midLat*Math.PI/180)/1000];
+  return {regions,urls:[...urls],km,mb:urls.size*0.024+regions.length*9};
+}
+function offEstimate(){
+  const b=frameBox(); if(!b){offInfo.textContent="Kippe die Karte in die Draufsicht.";$("offGo").disabled=true;return null}
+  const p=areaPlan(b,+$("offDetail").value), big=p.regions.length>30||p.urls.length>25000;
+  offInfo.textContent=`${fmt(p.km[0],1)} × ${fmt(p.km[1],1)} km · etwa ${fmt(Math.round(p.mb/10)*10)} MB${big?" · zu groß, bitte kleineren Bereich wählen":""}`;
+  $("offGo").disabled=big; return {b,p};
+}
+function openOffSel(){
+  setSheet(false); offSel.hidden=false;
+  const [x,y]=targetGrid(); lookAt(x,y,Math.max(30,Math.min(110,camera.position.distanceTo(controls.target))),"2d");
+  setTimeout(offEstimate,100);
+}
+$("offPick").onclick=openOffSel;
+$("offCancel").onclick=()=>{offSel.hidden=true};
+$("offDetail").onchange=offEstimate;
+controls.addEventListener("change",()=>{if(!offSel.hidden){clearTimeout(offEstimate.t);offEstimate.t=setTimeout(offEstimate,150)}});
+let offBusy=false;
+$("offGo").onclick=async()=>{
+  const e=offEstimate(); if(!e||offBusy)return; offBusy=true; offSel.hidden=true; setSheet(true);
+  const st=$("offlineStatus"), {b,p}=e;
+  if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";offBusy=false;return}
+  try{navigator.storage&&navigator.storage.persist&&await navigator.storage.persist()}catch(err){}
+  const shell=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png","js/region-worker.js?v="+APPV,"js/planner-worker.js?v="+APPV].map(u=>new URL(u,location.href).href);
+  [...document.querySelectorAll("script[src]")].forEach(s=>shell.push(s.src));
+  const urls=[...shell,...p.urls];
+  let failR=0;
+  for(let i=0;i<p.regions.length;i++){
+    const [lon,lat]=p.regions[i];
+    st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert …`;
+    try{await window.MMM_keepRegion(lon,lat,n=>{st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert … ${n} %`})}catch(err){failR++;console.warn(err)}
   }
-  return [...urls];
+  const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
+  const work=async()=>{while(k<urls.length){const u=urls[k++];
+    try{if(!(await caches.match(u))){const r=await fetch(u,{mode:"cors"});if(!r.ok)throw 0;const bl=await r.clone().blob();bytes+=bl.size;await cache.put(u,r)}else await cache.put(u,await caches.match(u))}catch(err){fail++}
+    done++; if(done%20===0||done===urls.length)st.textContent=`Luftbild wird gespeichert … ${Math.round(done/urls.length*100)} %`}};
+  await Promise.all(Array.from({length:6},work));
+  const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
+  areas.push({id:Date.now(),name,b,regions:p.regions,detail:+$("offDetail").value,km:p.km,mb:Math.round(p.mb),date:new Date().toISOString().slice(0,10)});
+  saveAreas(areas); renderAreas();
+  let est="";try{const q=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(q.usage/1e6)} MB.`}catch(err){}
+  st.textContent=(failR||fail>urls.length*0.05?`Gespeichert, aber ${failR?failR+" Geländestücke und ":""}${fail} Bilder fehlen. Bei Empfang nochmal laden.`:"Bereich ist offline verfügbar.")+est;
+  offBusy=false;
+};
+function renderAreas(){
+  const box=$("offList"), areas=loadAreas(); box.innerHTML="";
+  areas.forEach(a=>{const d=document.createElement("div");d.className="offitem";
+    d.innerHTML=`<div><b>${escapeHtml(a.name)}</b>${fmt(a.km[0],1)} × ${fmt(a.km[1],1)} km · ca. ${fmt(a.mb)} MB · ${a.date}</div><div class="row"><button class="btn" data-open>Öffnen</button><button class="btn" data-del>Löschen</button></div>`;
+    d.querySelector("[data-open]").onclick=()=>{const lon=(a.b.lon0+a.b.lon1)/2, lat=(a.b.lat0+a.b.lat1)/2; goTo(lon,lat,a.name)};
+    d.querySelector("[data-del]").onclick=async()=>{
+      const rest=loadAreas().filter(x=>x.id!==a.id), used=new Set(rest.flatMap(x=>x.regions.map(r=>r.join(","))));
+      for(const r of a.regions)if(!used.has(r.join(",")))await window.MMM_dropRegion(r[0],r[1]);
+      const cache=await caches.open(OFFLINE_CACHE), keepU=new Set(rest.flatMap(x=>areaPlan(x.b,x.detail).urls));
+      for(const u of areaPlan(a.b,a.detail).urls)if(!keepU.has(u))await cache.delete(u);
+      saveAreas(rest); renderAreas(); $("offlineStatus").textContent=`„${a.name}" gelöscht.`};
+    box.appendChild(d)});
 }
-async function saveOffline(maxZ){
-  const st=$("offlineStatus");
-  if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";return}
-  try{navigator.storage&&navigator.storage.persist&&await navigator.storage.persist()}catch(e){}
-  const cache=await caches.open(OFFLINE_CACHE), urls=offlineUrls(maxZ);
-  let done=0, fail=0, bytes=0, i=0;
-  $("saveStd").disabled=$("saveMax").disabled=true;
-  const worker=async()=>{while(i<urls.length){const u=urls[i++];
-    try{if(!(await cache.match(u))){const r=await fetch(u,{mode:"cors"}); if(!r.ok)throw 0; const b=await r.clone().blob(); bytes+=b.size; await cache.put(u,r)}}catch(e){fail++}
-    done++; if(done%10===0||done===urls.length)st.textContent=`Speichere … ${Math.round(done/urls.length*100)} % (${fmt(bytes/1e6)} MB neu)`}};
-  await Promise.all([worker(),worker(),worker(),worker(),worker(),worker()]);
-  $("saveStd").disabled=$("saveMax").disabled=false;
-  let est="";try{const e=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(e.usage/1e6)} MB.`}catch(e){}
-  st.textContent=fail?`Gespeichert, aber ${fail} von ${urls.length} Dateien fehlen. Bei Empfang nochmal tippen.${est}`:`Dieser Bereich ist offline verfügbar.${est}`;
-}
-$("saveStd").onclick=()=>saveOffline(16);
-$("saveMax").onclick=()=>saveOffline(17);
-$("clearOffline").onclick=async()=>{try{await caches.delete(OFFLINE_CACHE);await caches.delete("mmm-runtime-v1")}catch(e){} $("offlineStatus").textContent="Offline-Daten gelöscht."};
+renderAreas();
+
+// ---------- App install ----------
 let installEvt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
 $("installBtn").onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){} installEvt=null;$("installBtn").hidden=true};
