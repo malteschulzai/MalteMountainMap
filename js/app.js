@@ -791,8 +791,9 @@ let active=0; const queue=[];
 function fetchTile(url){
   return new Promise(res=>{
     const run=async()=>{active++;
-      try{const r=await fetch(url,{mode:"cors"}); if(!r.ok)throw 0; res(await createImageBitmap(await r.blob()))}
-      catch(e){res(null)} finally{active--; if(queue.length)queue.shift()()}};
+      const ac=new AbortController(), to=setTimeout(()=>ac.abort(),15000);
+      try{const r=await fetch(url,{mode:"cors",signal:ac.signal}); if(!r.ok)throw 0; res(await createImageBitmap(await r.blob()))}
+      catch(e){res(null)} finally{clearTimeout(to); active--; if(queue.length)queue.shift()()}};
     if(active<8)run(); else queue.push(run);
   });
 }
@@ -812,6 +813,8 @@ function mbQuad(z,x,y){
     if(mbTiles.size>400)mbTiles.delete(mbTiles.keys().next().value)}
   return mbTiles.get(k).then(bm=>bm?{bm,sx:(x&1)*256,sy:(y&1)*256}:null);
 }
+function orthoSrcName(){const c=META.center||[11.4,47.3], n=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]);
+  return n==="swisstopo"?"SWISSIMAGE swisstopo":n==="IGN"?"IGN":n==="Bayern"?"DOP Bayern":n==="basemap.at"||!n&&!window.MMMSrc?"basemap.at":"Sentinel-2 (EOX)"}
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
@@ -879,7 +882,7 @@ async function renderShade(mx0,mx1,my0,my1,w,h){
   if(!cv){statusEl.textContent="Luftbild nicht erreichbar, Relief wird angezeigt";return}
   const t=new THREE.CanvasTexture(cv); t.anisotropy=renderer.capabilities.getMaxAnisotropy();
   shared.globalMap.value=t; shared.orthoReady.value=1; needsRender=true;
-  statusEl.textContent="Luftbild: basemap.at";
+  statusEl.textContent="Luftbild: "+orthoSrcName();
   scheduleLOD();
 })();
 
@@ -993,7 +996,7 @@ async function loadOsm(){
   if(!j2)setTimeout(loadOsm,60000);
   const seen=new Set(), json={elements:[]};
   [j1,j2].forEach(j=>j&&j.elements.forEach(el=>{const k=el.type+el.id; if(!seen.has(k)){seen.add(k);json.elements.push(el)}}));
-  statusEl.textContent=shared.orthoReady.value?"Luftbild: basemap.at":statusEl.textContent;
+  statusEl.textContent=shared.orthoReady.value?"Luftbild: "+orthoSrcName():statusEl.textContent;
   const labels=[], ways=[];
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
   for(const el of json.elements){
