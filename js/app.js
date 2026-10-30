@@ -1329,8 +1329,9 @@ async function runSearch(q){
       b.onclick=()=>goTo(+p.lon,+p.lat,nm); out.appendChild(b)});
   }catch(e){out.innerHTML='<p class="hint">Suche gerade nicht erreichbar. Prüfe die Verbindung.</p>'}
 }
-$("search").addEventListener("input",e=>{clearTimeout(searchTimer);const v=e.target.value;searchTimer=setTimeout(()=>runSearch(v),450)});
-$("search").addEventListener("keydown",e=>{if(e.key==="Enter"){clearTimeout(searchTimer);runSearch(e.target.value)}});
+// Nominatim usage policy forbids search-as-you-type, so we only search on Enter
+$("search").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();runSearch(e.target.value)}});
+$("search").addEventListener("search",e=>runSearch(e.target.value));
 $("searchBtn").onclick=e=>{e.stopPropagation();setSheet(true);$("search").focus()};
 $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 // offer to load the area in the middle of the screen once it is far from the loaded area
