@@ -1066,13 +1066,13 @@ function osmQueries(g){
   const [w,s]=MMMGeo.mercToLonLat(g.x0,g.y1-g.H*g.cell), [e,n]=MMMGeo.mercToLonLat(g.x0+g.W*g.cell,g.y1);
   const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
   const q1=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
-  const q2=`[out:json][timeout:90];way["highway"="track"](${bb});out geom;`;
+  const q2=`[out:json][timeout:90];(way["highway"="track"](${bb});way["highway"~"^(path|footway)$"][!"sac_scale"](${bb}););out geom;`;
   const base="https://mmm.local/osm/"+bb;
   return {q1,q2,base};
 }
 async function loadOsm(){
   const {q1,q2,base}=osmQueries({x0:G.x0,y1:G.y1,W,H,cell:G.cell});
-  const [j1,j2]=await Promise.all([overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]),overpass(q2,base+"/tracks4",[])]);
+  const [j1,j2]=await Promise.all([overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]),overpass(q2,base+"/tracks5",[base+"/tracks4"])]);
   if(!j1&&!j2){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar, neuer Versuch in 30 s";setTimeout(loadOsm,30000);return}
   if(!j2)setTimeout(loadOsm,60000);
   const seen=new Set(), json={elements:[]};
@@ -1091,16 +1091,17 @@ async function loadOsm(){
     if(!el.geometry||el.geometry.length<2)continue;
     const pts=el.geometry.map(g=>[lonToX(g.lon),latToY(g.lat)]);
     if(!pts.some(p=>inside(p[0],p[1])))continue;
-    let kind,color,dashed=false,label,grade=0,air=false,track=false;
+    let kind,color,dashed=false,label,grade=0,air=false,track=false,unrated=false;
     if(tg.highway==="track"){kind="path";track=true;color="#b88a4a";label=(tg.name?tg.name+" · ":"")+"Forstweg"+(tg.tracktype?" ("+tg.tracktype.replace("grade","Klasse ")+")":"");grade=SAC[tg.sac_scale]||0}
     else if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
+    else if(tg.highway==="path"||tg.highway==="footway"){grade=1;kind="path";color="#9a8f7a";dashed=true;label=(tg.name?tg.name+" · ":"")+"Weg ohne Schwierigkeitsangabe";unrated=true}
     else if(tg["piste:type"]==="downhill"){if(tg.area==="yes")continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
     else if(tg["piste:type"]==="skitour"){kind="piste";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute"}
     else if(tg.aerialway||tg.railway==="funicular"){kind="lift";color="#1b2420";air=!!tg.aerialway;label=(tg.name?tg.name+" · ":"")+(LIFT_NAME[tg.aerialway||"funicular"]||"Lift")}
     else continue;
     let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(p=>{bx0=Math.min(bx0,p[0]);bx1=Math.max(bx1,p[0]);by0=Math.min(by0,p[1]);by1=Math.max(by1,p[1])});
     ways.push({kind,color,dashed,label,grade,air,track,pts,bx0,bx1,by0,by1});
-    if(kind==="path"&&!track&&grade){
+    if(kind==="path"&&!track&&grade&&!unrated){
       let len=0; for(let i=1;i<pts.length;i++)len+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
       if(len*CELL>250){let acc=0,half=len/2;
         for(let i=1;i<pts.length;i++){const d=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
@@ -1754,7 +1755,7 @@ $("offGo").onclick=async()=>{
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
-    await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks4",[]);
+    await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks5",[]);
   }
   const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
   const work=async()=>{while(k<urls.length){const u=urls[k++];
