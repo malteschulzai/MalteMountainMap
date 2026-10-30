@@ -84,6 +84,18 @@ async function terrariumGrid(mx0,mx1,my0,my1,nx,ny){
       out[j*nx+i]=at(x,y)*(1-ax)*(1-ay)+at(x+1,y)*ax*(1-ay)+at(x,y+1)*(1-ax)*ay+at(x+1,y+1)*ax*ay}}
   return out;
 }
+// Copernicus tree cover density 2018 (10 m, 0..100 %) and forest type 2015 (20 m: 1 broadleaved, 2 coniferous), EEA image services
+const EEA="https://air.discomap.eea.europa.eu/arcgis/rest/services/FISE/";
+async function forestGrid(x0,x1,y0,y1,w,h){
+  const rr=encodeURIComponent('{"rasterFunction":"None"}'), mr=encodeURIComponent('{"mosaicMethod":"esriMosaicLockRaster","lockRasterIds":[16]}');
+  const q=(svc,extra)=>`${EEA}${svc}/ImageServer/exportImage?bbox=${x0.toFixed(1)},${y0.toFixed(1)},${x1.toFixed(1)},${y1.toFixed(1)}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=bsq&pixelType=U8&interpolation=RSP_NearestNeighbor&renderingRule=${rr}${extra}&f=image`;
+  const [a,b]=await Promise.all([cachedFetch(q("TreCoverDensity_serie","&mosaicRule="+mr)).catch(()=>null),cachedFetch(q("Copernicus_ForestType_2015_20m_FAO","")).catch(()=>null)]);
+  if(!a||a.byteLength<w*h)return null;
+  const A=new Uint8Array(a,0,w*h), B=b&&b.byteLength>=w*h?new Uint8Array(b,0,w*h):null, out=new Uint8Array(w*h*2);
+  for(let k=0;k<w*h;k++){out[2*k]=A[k]<=100?A[k]:0; out[2*k+1]=B&&B[k]<=2?B[k]:0}
+  return out;
+}
+root.MMM_forestGrid=forestGrid;
 function fillGaps(a,nx,ny){
   const valid=new Uint8Array(nx*ny); let any=false;
   for(let k=0;k<a.length;k++)if(a[k]===a[k]){valid[k]=1;any=true}
@@ -156,6 +168,7 @@ async function buildRegion(lon,lat,name,sayFn){
   say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":src==="swisstopo"||src==="IGN"?`Gelände wird geladen (${src}) …`:"Gelände wird geladen …");
   const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
   const VW=W/2, VH=H/2;
+  const forestP=forestGrid(x0,x1,y0,y1,VW,VH).catch(()=>null);
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   const domP=!tirol?Promise.resolve(null):sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
   const dgmR=!tirol?null:await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
@@ -198,18 +211,35 @@ async function buildRegion(lon,lat,name,sayFn){
     for(let i=0;i<nTrees;i++){dv.setUint16(i*2,tx[i],true);dv.setUint16(nTrees*2+i*2,ty[i],true);buf[nTrees*4+i]=th[i]}
     trees=buf;
   }
+  const forest=await forestP;
+  if(!domR&&forest){
+    // no laser surface model here: forest and trees from the satellite tree cover density
+    veg=new Uint8Array(VW*VH*2); const tx=[],ty=[],th=[]; let seed=777; const rnd=()=>(seed=(seed*1664525+1013904223)>>>0)/4294967296;
+    for(let j=0;j<VH;j++)for(let i=0;i<VW;i++){
+      const k=j*VW+i, a=(2*j)*W+2*i, g=(dgm[a]+dgm[a+1]+dgm[a+W]+dgm[a+W+1])/4;
+      const gxm=dgm[a+(i<VW-1?2:0)]-dgm[a-(i>0?2:0)], gym=dgm[a+(j<VH-1?2*W:0)]-dgm[a-(j>0?2*W:0)], sl=Math.atan(Math.hypot(gxm,gym)/20)*180/Math.PI;
+      let t=forest[2*k]/100; if(sl>45)t*=0.3;
+      veg[2*k]=smooth(0.08,0.6,t)*255;
+      const n=(rnd()<t*1.3?1:0)+(t>0.7&&rnd()<0.5?1:0);
+      for(let q=0;q<n&&tx.length<420000;q++){tx.push(Math.round((2*i+rnd()*2)*16));ty.push(Math.round((2*j+rnd()*2)*16));th.push(Math.round((12+14*rnd())*(1-0.45*smooth(1700,2200,g))*4))}
+    }
+    nTrees=tx.length; const buf=new Uint8Array(nTrees*5), dv=new DataView(buf.buffer);
+    for(let i=0;i<nTrees;i++){dv.setUint16(i*2,tx[i],true);dv.setUint16(nTrees*2+i*2,ty[i],true);buf[nTrees*4+i]=th[i]}
+    trees=buf;
+  }
   say("Umgebung wird geladen …");
   const ctx=await ctxP;
   const meta={grid:{W,H,x0,y1,cell},labels:[],region:true,name,center:[lon,lat]};
   if(veg)meta.veg={W:VW,H:VH};
+  if(forest)meta.forest={W:VW,H:VH};
   if(trees)meta.trees={n:nTrees};
   if(ctx)meta.context=ctx.grid;
-  return {meta,dm,veg,trees,ctx:ctx?ctx.bytes:null,urls};
+  return {meta,dm,veg,trees,forest,ctx:ctx?ctx.bytes:null,urls};
 }
 root.MMM_buildRegion=buildRegion;
 
 // ---- built areas: packed, gzipped and kept in the Cache API, so switching is quick ----
-const BUILD_V="b1", BUILT="mmm-built", KEEP="mmm-built-keep";
+const BUILD_V="b2", BUILT="mmm-built", KEEP="mmm-built-keep";
 const builtKey=(lon,lat)=>`https://linefinder.local/built/${BUILD_V}/${(+lon).toFixed(2)},${(+lat).toFixed(2)}`;
 async function gz(u8,pack){
   if(typeof CompressionStream==="undefined")return null;
@@ -218,7 +248,7 @@ async function gz(u8,pack){
 }
 async function storeBuilt(lon,lat,r){
   try{
-    const parts=[["dm",r.dm],["veg",r.veg],["trees",r.trees],["ctx",r.ctx]].filter(p=>p[1]);
+    const parts=[["dm",r.dm],["veg",r.veg],["trees",r.trees],["forest",r.forest],["ctx",r.ctx]].filter(p=>p[1]);
     const head=new TextEncoder().encode(JSON.stringify({meta:r.meta,urls:r.urls,parts:parts.map(p=>[p[0],p[1] instanceof Uint16Array?"u16":"u8",p[1].byteLength])}));
     const pad=o=>o+((8-o%8)%8);
     let total=pad(4+head.length); parts.forEach(p=>total=pad(total+p[1].byteLength));
@@ -237,12 +267,12 @@ async function loadBuilt(lon,lat){
     const u=await gz(new Uint8Array(await hit.arrayBuffer()),false), dv=new DataView(u.buffer,u.byteOffset,u.byteLength);
     const pad=o=>o+((8-o%8)%8);
     const hl=dv.getUint32(0,true), head=JSON.parse(new TextDecoder().decode(u.subarray(4,4+hl)));
-    let o=pad(4+hl); const r={meta:head.meta,urls:head.urls,dm:null,veg:null,trees:null,ctx:null};
+    let o=pad(4+hl); const r={meta:head.meta,urls:head.urls,dm:null,veg:null,trees:null,forest:null,ctx:null};
     for(const [name,type,len] of head.parts){const b=u.buffer.slice(u.byteOffset+o,u.byteOffset+o+len); r[name]=type==="u16"?new Uint16Array(b):new Uint8Array(b); o=pad(o+len)}
     return r;
   }catch(e){console.warn("Bereich lesen",e);return null}
 }
-const transfers=r=>[r.dm,r.veg,r.trees,r.ctx].filter(Boolean).map(a=>a.buffer);
+const transfers=r=>[r.dm,r.veg,r.trees,r.forest,r.ctx].filter(Boolean).map(a=>a.buffer);
 
 // ---- worker: build an area on request and keep it in the cache ----
 if(!isMain){

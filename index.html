@@ -260,6 +260,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <button class="qchip" id="qSlopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg> Hangsuche</button>
         <button class="qchip" data-proxy="lyAspect">Exposition</button>
         <button class="qchip" data-proxy="lyPaths">Wege</button>
+        <button class="qchip" data-proxy="lyForest">Walddichte</button>
         <button class="qchip" data-proxy="lyAo">Schatten</button>
       </div>
     </div>
@@ -289,6 +290,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         </div>
         <div class="row" role="group" aria-label="Ebenen">
           <button class="chip" id="lyAo" aria-pressed="true">Umgebungsschatten</button>
+          <button class="chip" id="lyForest" aria-pressed="false">Walddichte</button>
           <button class="chip" id="lySlope" aria-pressed="false">Hangneigung</button>
           <button class="chip" id="lyAspect" aria-pressed="false">Exposition</button>
           <button class="chip" id="lyTrees" aria-pressed="true">3D-Bäume</button>
@@ -312,6 +314,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <span><i class="dash" style="--c:#2f6fd8"></i>T4</span><span><i class="dash" style="--c:#1f3f9a"></i>T5</span><span><i class="dash" style="--c:#111"></i>T6</span>
         <span><i style="background:#b88a4a;height:5px;vertical-align:1px"></i>Forstweg</span>
         <span><i style="background:#2a7de1"></i>blau</span><span><i style="background:#d7301f"></i>rot</span><span><i style="background:#111"></i>schwarz</span><span><i class="dash" style="--c:#7b2d8e"></i>Skitour</span>
+      </div>
+      <div class="legend" id="legendForest" hidden>
+        <span><i style="background:#4dbf4d"></i>licht, unter 35 %</span><span><i style="background:#f2b326"></i>mittel, 35–65 %</span><span><i style="background:#cc2e26"></i>dicht, über 65 %</span>
+        <span style="flex-basis:100%">Kronendeckung aus Satellitendaten (Copernicus, 10 m, Stand 2018). Sagt nichts über Stämme und Unterholz.</span>
       </div>
       <div class="legend" id="legendAspect" hidden>
         <span><i style="background:#2952cc"></i>N</span><span><i style="background:#2ea8db"></i>NO</span><span><i style="background:#4db34d"></i>O</span><span><i style="background:#edcc33"></i>SO</span>
@@ -404,7 +410,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p style="margin:0 0 4px;font-weight:600">Linefinder</p>
         <p class="hint" id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</p>
         <button class="btn" id="goNordkette" style="margin:8px 0" hidden>Zurück zur Nordkette</button>
-        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Walddichte und Waldtyp: Copernicus Land Monitoring Service, High Resolution Layer Forest (EEA). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
       </div>
     </div></div>
   </section>
@@ -426,12 +432,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=40"></script>
-<script src="js/config.js?v=40"></script>
-<script src="js/geo.js?v=40"></script>
-<script src="js/borders.js?v=40"></script>
-<script src="js/sources.js?v=40"></script>
-<script src="js/region.js?v=40"></script>
-<script src="js/app.js?v=40"></script>
+<script src="data/nordkette-meta.js?v=41"></script>
+<script src="js/config.js?v=41"></script>
+<script src="js/geo.js?v=41"></script>
+<script src="js/borders.js?v=41"></script>
+<script src="js/sources.js?v=41"></script>
+<script src="js/region.js?v=41"></script>
+<script src="js/app.js?v=41"></script>
 </body>
 </html>

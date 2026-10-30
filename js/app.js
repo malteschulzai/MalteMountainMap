@@ -199,9 +199,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -317,7 +317,7 @@ const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  aoMap:{value:blank0()}, aoAmt:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
+  aoMap:{value:blank0()}, aoAmt:{value:0}, forestMap:{value:blank0()}, hasForest:{value:0}, showForest:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
   globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, sgMap:{value:blank0()}, showSG:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
@@ -339,6 +339,7 @@ uniform float showAspect, treesOn, isPatch, useFineSlope, showSG;
 uniform sampler2D sgMap;
 uniform sampler2D maskMap, fineSlope, aoMap, searchMap;
 uniform float aoAmt, showSearch;
+uniform sampler2D forestMap; uniform float hasForest, showForest;
 uniform float exag, rockLo, rockHi;
 varying vec3 vNrm;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
@@ -409,11 +410,20 @@ void main(){
     tr *= 1.0-smoothstep(42.0,55.0,slope); sr *= 1.0-smoothstep(45.0,58.0,slope);
     float crownT=obj*tr*(1.0-0.85*treesOn);
     if(ortho) crownT=max(crownT, smoothstep(0.30,0.13,olum)*tr);
+    vec4 fo=texture2D(forestMap,dUv); float tcd=clamp(fo.r*2.55,0.0,1.0), broad=step(0.5,fo.a*255.0)*step(fo.a*255.0,1.5);
+    if(hasForest>0.5){
+      // crown cover from Copernicus: gaps between crowns where the forest is light
+      float cr=0.65*vnoise(vWorld.xz*16.0)+0.35*vnoise(vWorld.xz*41.0);
+      float crowns=1.0-smoothstep(tcd-0.1,tcd+0.1,cr*1.05);
+      crowns=mix(crowns,tcd,smoothstep(28.0,70.0,length(vWorld-camPos)));
+      crownT*=crowns*smoothstep(0.05,0.25,tcd)*(1.0-0.45*broad);
+    }
     // Latschen: clumps of a few metres; "bury" decides which share still sticks out of the snow
     float clump=0.62*vnoise(vWorld.xz*11.0)+0.26*vnoise(vWorld.xz*32.0)+0.12*obj;
     sr*=1.0-smoothstep(2050.0,2250.0,vElev);
     float crownS=mix(sr*smoothstep(1.0-bury-0.07,1.0-bury+0.07,clump), sr*bury*0.8, smoothstep(28.0,70.0,length(vWorld-camPos)));
     vec3 crownC=mix(vec3(.08,.14,.10)*(0.55+0.95*so), snowCol(so)*0.97, crownSnow*smoothstep(0.48,0.85,so));
+    if(hasForest>0.5) crownC=mix(crownC, vec3(.40,.36,.32)*(0.6+0.7*so), broad*0.8);   // leafless broadleaf (and larch-like) crowns
     vec3 shrubC=mix(vec3(.09,.16,.09)*(0.55+0.9*so), snowCol(so), 0.18);
     vec3 w=snowCol(isPatch>0.5?mix(sg,geoL,0.55):sg);
     w=mix(w, shrubC, clamp(crownS,0.0,1.0)*0.92);
@@ -448,6 +458,8 @@ void main(){
     vec3 sc = slope>=45.0?vec3(.48,.18,.56):slope>=40.0?vec3(.84,.19,.12):slope>=35.0?vec3(.93,.54,.17):vec3(.95,.82,.23);
     col=mix(col,sc,0.55);
   }
+  if(showForest>0.5&&hasForest>0.5){ float t=clamp(texture2D(forestMap,dUv).r*2.55,0.0,1.0);
+    if(t>0.08){ vec3 fc=t<0.35?vec3(.30,.75,.30):t<0.65?vec3(.95,.70,.15):vec3(.80,.18,.15); col=mix(col,fc,0.5*smoothstep(0.08,0.15,t)); } }
   // ambient occlusion: gullies and valley floors see less sky
   if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.8+0.2*ao,aoAmt); }
   if(showSearch>0.5){ float m=texture2D(searchMap,dUv).r; if(m>0.35) col=mix(col,vec3(0.0,0.78,1.0),0.55*smoothstep(0.35,0.7,m)); }
@@ -503,6 +515,13 @@ for(let cj=0;cj<CY;cj++)for(let ci=0;ci<CX;ci++){
   chunks.push({mesh,uniforms,gx0,gx1,gy0,gy1,mx0,mx1,my0,my1,z:0,loading:0,want:0});
 }
 terrain.scale.y=state.exag;
+let forestArr=null;
+const forestPromise=REG?Promise.resolve(REG.forest||null):window.MMM_forestGrid?window.MMM_forestGrid(G.x0,G.x0+W*G.cell,G.y1-H*G.cell,G.y1,W>>1,H>>1).catch(()=>null):Promise.resolve(null);
+forestPromise.then(f=>{
+  if(!f)return; forestArr=f;
+  const t=new THREE.DataTexture(f,W>>1,H>>1,THREE.LuminanceAlphaFormat); t.magFilter=t.minFilter=THREE.LinearFilter; t.generateMipmaps=false; t.needsUpdate=true;
+  shared.forestMap.value=t; shared.hasForest.value=1; needsRender=true;
+});
 vegPromise.then(v=>{
   if(!v)return;
   const vt=new THREE.DataTexture(v,META.veg.W,META.veg.H,THREE.LuminanceAlphaFormat);
@@ -1281,6 +1300,8 @@ function showPoint(gx,gy){
   $("pointInfo").innerHTML=`<div class="point"><span class="big">${fmt(Math.round(e))} m</span><span class="big">${fmt(Math.round(s))}°</span>${slopePill(s)}</div>
   ${state.winter&&winterKey?`<div class="point"><span class="sub">Winter-Modell: ${snowText(data[k*4+2]/255)}</span></div>`:""}
   <div class="point"><span class="sub">Exposition ${ASPECTS[aspect[k]]}</span><span class="sub">${fmt(yToLat(gy),5)} N, ${fmt(xToLon(gx),5)} O</span></div>`;
+  if(forestArr){const fx=Math.min((W>>1)-1,Math.max(0,Math.floor(gx/2))), fy=Math.min((H>>1)-1,Math.max(0,Math.floor(gy/2))), fk=fy*(W>>1)+fx, t=forestArr[2*fk], ty=forestArr[2*fk+1];
+    if(t>=5){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">Wald: ${t} % Kronendeckung, ${t<35?"licht":t<65?"mittel":"dicht"}${ty===1?", Laubwald":ty===2?", Nadelwald":""}</span>`;$("pointInfo").appendChild(d)}}
   const sgv=snowgridAt(gx,gy);
   if(sgv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">SNOWGRID: ${fmt(Math.round(sgv))} cm (Mittel der 1-km-Zelle)</span>`;$("pointInfo").appendChild(d)}
   const w=osmWays.length?nearestWay(gx,gy):null;
@@ -1481,7 +1502,7 @@ $("sgDate").addEventListener("change",()=>{if(state.snowgrid)loadSnowgrid()});
 
 // ---------- Controls ----------
 function applyUniforms(){
-  shared.mode.value=state.base==="ortho"?0:1; shared.aoAmt.value=state.ao&&aoReady?1:0;
+  shared.mode.value=state.base==="ortho"?0:1; shared.aoAmt.value=state.ao&&aoReady?1:0; shared.showForest.value=state.forest?1:0; $("legendForest").hidden=!state.forest;
   shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
   $("legendAspect").hidden=!state.aspect;
   shared.showSG.value=state.snowgrid&&sgPts?1:0; $("sgSec").hidden=!state.snowgrid;
@@ -1493,7 +1514,7 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
+[["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
@@ -1906,7 +1927,7 @@ function navigateKeepView(lon,lat,tlon,tlat){
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
 function syncUI(){
-  const chips={lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
+  const chips={lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
   $("snowLvl").value=state.snow; $("wind").value=state.wind; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
