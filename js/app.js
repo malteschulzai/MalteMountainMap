@@ -1220,9 +1220,7 @@ function updateLabels(){
   const show=state.route&&route&&route.ends;
   $("rStart").hidden=!show; $("rEnd").hidden=!show;
   if(show){project(route.ends[0].gx,route.ends[0].gy,$("rStart"),0.05);project(route.ends[1].gx,route.ends[1].gy,$("rEnd"),0.05)}
-  const pl=typeof plan!=="undefined"?plan:null;
-  $("pStart").hidden=!(pl&&pl.s&&(pl.pick||!route||!route.plan)); if(!$("pStart").hidden)project(pl.s[0],pl.s[1],$("pStart"),0.05);
-  $("pGoal").hidden=!(pl&&pl.g&&(pl.pick||!route||!route.plan)); if(!$("pGoal").hidden)project(pl.g[0],pl.g[1],$("pGoal"),0.05);
+  if(typeof placePlanMarks==="function")placePlanMarks();
   if(typeof me!=="undefined"&&me&&!$("me").hidden){const g=[lonToX(me.lon),latToY(me.lat)];project(g[0],g[1],$("me"),0.05)}
 }
 
@@ -1283,7 +1281,7 @@ renderer.domElement.addEventListener("pointerup",e=>{
   ray.setFromCamera(ndc,camera);
   const hp=rayTerrain(ray.ray.origin,ray.ray.direction); if(!hp)return;
   const gx=hp.x/sc+W/2, gy=hp.z/sc+H/2;
-  if(plan.pick){planTap(gx,gy);return}
+  if(plan.active){planTap(gx,gy);return}
   $("searchResults").hidden=true;
   lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy); if(curTab)openPanel(null); $("pointCard").hidden=false;
 });
@@ -1580,8 +1578,8 @@ locBtn.onclick=()=>{
 };
 try{if(sessionStorage.getItem("lf-locate")){sessionStorage.removeItem("lf-locate");setTimeout(startLocate,300)}}catch(e){}
 
-// ---------- Tour planner (route with as little avalanche terrain as possible) ----------
-const plan={s:null,g:null,pick:0,core:[0,0,0,0,0,0,0,0],mode:"ski"};
+// ---------- Tour planner: tap points on the map, the route is drawn between them right away ----------
+const plan={pts:[],segs:[],active:false,core:[0,0,0,0,0,0,0,0],mode:"ski",key:""};
 // paths, forest roads and ski tour routes from OpenStreetMap on the 10 m planner grid
 function waysMask(){
   const w=W>>1,h=H>>1,m=new Uint8Array(w*h);
@@ -1594,14 +1592,17 @@ function waysMask(){
   }
   return m;
 }
+const planKey=()=>[plan.mode,$("planDl").value,plan.core.join(""),$("planElev").value,$("planW").value,$("planMaxG").value,osmWays.length].join("|");
 function setPlanMode(mode){
-  plan.mode=mode; $("planSki").setAttribute("aria-pressed",mode==="ski"); $("planHike").setAttribute("aria-pressed",mode==="hike");
+  plan.mode=mode;
+  document.querySelectorAll("[data-pmode]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.pmode===mode));
   $("planAval").hidden=mode!=="ski"; $("planHikeOpts").hidden=mode!=="hike";
-  $("planHint").textContent=mode==="ski"?"Setze Start und Ziel. Die Skitour sucht einen Weg mit wenig Lawinengelände, angenehmer Steilheit und ohne dichten Wald. Gib dazu Gefahrenstufe und Kernzone aus dem Lagebericht an."
-    :"Setze Start und Ziel. Die Bergtour folgt den vorhandenen Wegen und Forststraßen aus OpenStreetMap bis zur gewählten Schwierigkeit und geht nur zum Anschluss kurz ins Gelände.";
+  $("planHint").textContent=mode==="ski"?"Tippe Start, Zwischenpunkte und Ziel in die Karte. Die Skitour sucht einen Weg mit wenig Lawinengelände, angenehmer Spuranlage und ohne dichten Wald. Gefahrenstufe und Kernzone stellst du hier ein oder übernimmst sie aus dem Lagebericht."
+    :"Tippe Start, Zwischenpunkte und Ziel in die Karte. Die Bergtour folgt genau den Wegen und Forststraßen aus OpenStreetMap bis zur gewählten Schwierigkeit.";
+  if(plan.pts.length>1)recomputePlan();
 }
-let planWorker=null, planReady=null, planBusy=false;
-const pStart=$("pStart"), pGoal=$("pGoal"), planStatus=$("planStatus");
+let planWorker=null, planReady=null, planBusy=0;
+const planStatus=$("planStatus");
 function getPlanner(){
   if(planReady)return planReady;
   planReady=(async()=>{
@@ -1616,47 +1617,137 @@ function getPlanner(){
   planReady.catch(()=>{planReady=null});
   return planReady;
 }
-const DLW={0.3:"möglichst kurz",1:"ausgewogen",3:"möglichst sicher"};
+let workerChain=Promise.resolve();
+function workerRoute(a,b){
+  // one request at a time on the worker
+  const job=workerChain.then(async()=>{
+    const w=await getPlanner();
+    return await new Promise((ok,bad)=>{w.onmessage=e=>{if(e.data.progress!==undefined)return;e.data.err?bad(new Error(e.data.err)):ok(e.data.pts)};
+      w.postMessage({mode:plan.mode,ways:waysMask(),maxGrade:+$("planMaxG").value,s:a.map(v=>Math.max(0,Math.floor(v/2))),g:b.map(v=>Math.max(0,Math.floor(v/2))),
+        dl:+$("planDl").value,core:plan.core,coreElev:+$("planElev").value,weight:+$("planW").value,turn:1})});
+  });
+  workerChain=job.catch(()=>{});
+  return job;
+}
+// hikes: shortest walking time on the OSM path network itself, so the route lies exactly on the path
+const walkCost=(a,b)=>{const d=Math.hypot(b[0]-a[0],b[1]-a[1])*CELL, dz=elevAt(b[0],b[1])-elevAt(a[0],a[1]); return d*0.015+(dz>0?dz*0.2:-dz*0.12)};
+let hikeG=null, hikeKey="";
+function hikeGraph(maxG){
+  const key=maxG+":"+osmWays.length; if(hikeG&&hikeKey===key)return hikeG;
+  const nodes=[],adj=[],ids=new Map(),segs=[];
+  const id=p=>{const k=Math.round(p[0]*8)+","+Math.round(p[1]*8);let i=ids.get(k);if(i===undefined){i=nodes.length;ids.set(k,i);nodes.push(p);adj.push([])}return i};
+  for(const wy of osmWays){if(wy.kind!=="path")continue;const gr=wy.track?0:(wy.grade||2);if(!wy.track&&gr>maxG)continue;
+    const f=wy.track?1:1+0.15*Math.max(0,gr-2);
+    for(let i=1;i<wy.pts.length;i++){const a=id(wy.pts[i-1]),b=id(wy.pts[i]);if(a===b)continue;
+      adj[a].push([b,walkCost(nodes[a],nodes[b])*f]);adj[b].push([a,walkCost(nodes[b],nodes[a])*f]);segs.push([a,b,f])}}
+  hikeG={nodes,adj,segs}; hikeKey=key; return hikeG;
+}
+function hikeRoute(P,Q){
+  const G=hikeGraph(+$("planMaxG").value); if(!G.segs.length)return null;
+  const snap=pt=>{let best=null;for(const [a,b,f] of G.segs){const A=G.nodes[a],B=G.nodes[b],dx=B[0]-A[0],dy=B[1]-A[1],l=dx*dx+dy*dy;
+    const t=l?Math.max(0,Math.min(1,((pt[0]-A[0])*dx+(pt[1]-A[1])*dy)/l)):0,x=A[0]+dx*t,y=A[1]+dy*t,d=Math.hypot(pt[0]-x,pt[1]-y);if(!best||d<best.d)best={a,b,f,x,y,d}}return best};
+  const sP=snap(P), sQ=snap(Q);
+  if(!sP||!sQ||sP.d*CELL>150||sQ.d*CELL>150)return null;   // too far from any path: terrain planner instead
+  const N0=G.nodes.length, XY=[P,[sP.x,sP.y],[sQ.x,sQ.y],Q], xy=i=>i<N0?G.nodes[i]:XY[i-N0];
+  const nb=i=>{const out=i<N0?G.adj[i].slice():[];
+    if(i===N0)out.push([N0+1,walkCost(P,XY[1])*4]);
+    if(i===N0+1){out.push([sP.a,walkCost(XY[1],G.nodes[sP.a])*sP.f],[sP.b,walkCost(XY[1],G.nodes[sP.b])*sP.f]);
+      if((sP.a===sQ.a&&sP.b===sQ.b)||(sP.a===sQ.b&&sP.b===sQ.a))out.push([N0+2,walkCost(XY[1],XY[2])*sP.f])}
+    if(i===sQ.a||i===sQ.b)out.push([N0+2,walkCost(G.nodes[i],XY[2])*sQ.f]);
+    if(i===N0+2)out.push([N0+3,walkCost(XY[2],Q)*4]);
+    return out};
+  const n=N0+4, dist=new Float64Array(n).fill(Infinity), prev=new Int32Array(n).fill(-1), done=new Uint8Array(n), hk=[], hv=[];
+  const push=(v,f)=>{hk.push(f);hv.push(v);let i=hk.length-1;while(i>0){const p=(i-1)>>1;if(hk[p]<=hk[i])break;[hk[p],hk[i]]=[hk[i],hk[p]];[hv[p],hv[i]]=[hv[i],hv[p]];i=p}};
+  const pop=()=>{const v=hv[0],lf=hk.pop(),lv=hv.pop();if(hk.length){hk[0]=lf;hv[0]=lv;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<hk.length&&hk[l]<hk[m])m=l;if(r<hk.length&&hk[r]<hk[m])m=r;if(m===i)break;[hk[m],hk[i]]=[hk[i],hk[m]];[hv[m],hv[i]]=[hv[i],hv[m]];i=m}}return v};
+  dist[N0]=0; push(N0,0);
+  while(hk.length){const u=pop();if(done[u])continue;done[u]=1;if(u===N0+3)break;
+    for(const [v,c] of nb(u)){const nd=dist[u]+c;if(nd<dist[v]){dist[v]=nd;prev[v]=u;push(v,nd)}}}
+  if(!done[N0+3])return null;
+  const out=[]; for(let u=N0+3;u>=0;u=prev[u])out.push(xy(u)); out.reverse();
+  return out.map(p=>[p[0],p[1],0,0]);
+}
+async function segment(a,b){
+  if(plan.mode==="hike"){
+    if(!osmWays.some(x=>x.kind==="path"))throw new Error("Die Wege aus OpenStreetMap sind noch nicht geladen. Versuch es gleich nochmal.");
+    const r=hikeRoute(a,b); if(r)return r;
+  }
+  return await workerRoute(a,b);
+}
+const PLAN_NAMES={ski:"Geplante Skitour",hike:"Geplante Bergtour"};
+function hhmm(h){const m=Math.round(h*60/5)*5;return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")} h`}
+function planInfo(){
+  const box=$("pbInfo");
+  if(!plan.pts.length){box.textContent="Tippe den Startpunkt in die Karte.";return}
+  if(plan.pts.length===1){box.textContent="Tippe das Ziel oder einen Zwischenpunkt.";return}
+  if(planBusy){box.textContent="Route wird berechnet …";return}
+  if(!route||!route.stats){box.textContent="Keine Route gefunden.";return}
+  const st=route.stats, km=st.dist/1000;
+  // walking time like the Alpine clubs: the larger of horizontal and vertical time plus half the smaller
+  const hz=km/4, vt=plan.mode==="hike"?st.up/300+st.down/500:st.up/400, t=Math.max(hz,vt)+Math.min(hz,vt)/2;
+  const risk=route.plan?` · Risiko ${route.plan.score<1?"gering":route.plan.score<2?"erhöht":"hoch"}`:"";
+  box.innerHTML=`<b>${fmt(km,1)} km · ${fmt(Math.round(st.up/10)*10)} Hm hoch · ${fmt(Math.round(st.down/10)*10)} Hm runter</b><br>${plan.mode==="hike"?"Gehzeit":"Aufstieg"} ca. ${hhmm(t)}${risk}`;
+}
+function applyPlanRoute(){
+  const all=[]; plan.segs.forEach((s,i)=>{if(s)s.forEach((p,j)=>{if(i&&!j)return;all.push(p)})});
+  if(all.length<2){route=null;buildRouteLine();planInfo();needsRender=true;return}
+  const dl=+$("planDl").value, ski=plan.mode==="ski";
+  setRoute(all.map(p=>[xToLon(p[0]),yToLat(p[1])]),PLAN_NAMES[plan.mode],ski?`Gefahrenstufe ${dl}${plan.core.some(Boolean)?", Kernzone "+["N","NO","O","SO","S","SW","W","NW"].filter((_,i)=>plan.core[i]).join(" ")+(+$("planElev").value>0?" ab "+fmt(+$("planElev").value)+" m":""):""}`:`auf Wegen bis T${$("planMaxG").value}`);
+  if(route&&ski){
+    let j=0; route.risk=route.samples.map(s=>{while(j<all.length-1&&Math.hypot(all[j+1][0]-s.gx,all[j+1][1]-s.gy)<=Math.hypot(all[j][0]-s.gx,all[j][1]-s.gy))j++;return all[j][2]});
+    // like Skitourenguru: mean indicator of the riskiest ~250 m of the route
+    const segs=route.samples.map((s,i)=>[route.risk[i],i?s.d-route.samples[i-1].d:0]).sort((a,b)=>b[0]-a[0]);
+    let L=0,sum=0; for(const [v,d] of segs){if(L>=250)break;const t=Math.min(d,250-L);sum+=v*t;L+=t}
+    route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo();
+  }
+  planInfo(); needsRender=true;
+}
+async function computeSeg(i){
+  const a=plan.pts[i], b=plan.pts[i+1], key=plan.key;
+  planBusy++; planInfo();
+  try{const r=await segment(a,b); if(key===plan.key&&plan.pts[i]===a&&plan.pts[i+1]===b)plan.segs[i]=r}
+  catch(e){planStatus.textContent=e.message; $("pbInfo").textContent="Keine Route: "+e.message; planBusy--; return}
+  planBusy--; if(key===plan.key)applyPlanRoute();
+}
+function recomputePlan(){plan.key=planKey(); plan.segs=new Array(Math.max(0,plan.pts.length-1)).fill(null); for(let i=0;i<plan.pts.length-1;i++)computeSeg(i); applyPlanRoute()}
+function startPlan(){
+  plan.active=true; openPanel(null); $("planBar").hidden=false; $("pointCard").hidden=true;
+  if(!plan.pts.length){route=null;buildRouteLine()}
+  plan.key=planKey(); planInfo(); getPlanner().catch(()=>{}); needsRender=true;
+}
+function endPlan(){
+  plan.active=false; $("planBar").hidden=true; needsRender=true;
+  if(route){fitRoute("3d"); statusEl.textContent="Route fertig. Profil und GPX unter Planen."}
+}
+function planTap(gx,gy){
+  plan.pts.push([gx,gy]);
+  if(plan.pts.length>1){plan.segs.push(null); if(plan.key!==planKey())recomputePlan(); else computeSeg(plan.pts.length-2)}
+  planInfo(); needsRender=true;
+}
 function planUI(){
   $("planElevOut").textContent=+$("planElev").value>0?fmt(+$("planElev").value)+" m":"alle Höhen";
   const w=+$("planW").value; $("planWOut").textContent=w<0.7?"eher kurz":w<1.6?"ausgewogen":"eher sicher";
   document.querySelectorAll("[data-asp]").forEach(b=>b.setAttribute("aria-pressed",plan.core[+b.dataset.asp]?"true":"false"));
-  $("planPick").textContent=plan.pick===1?"Start antippen …":plan.pick===2?"Ziel antippen …":"Start und Ziel setzen";
 }
 document.querySelectorAll("[data-asp]").forEach(b=>b.onclick=()=>{const a=+b.dataset.asp;plan.core[a]=plan.core[a]?0:1;planUI()});
 $("planElev").oninput=planUI; $("planW").oninput=planUI;
-$("planPick").onclick=()=>{plan.pick=1;plan.s=plan.g=null;planUI();setSheet(false);statusEl.textContent="Tippe den Startpunkt in die Karte";needsRender=true;getPlanner().catch(()=>{})};
-$("planSwap").onclick=()=>{if(!plan.s||!plan.g)return;[plan.s,plan.g]=[plan.g,plan.s];runPlan()};
-$("planRun").onclick=()=>runPlan();
-function planTap(gx,gy){
-  if(plan.pick===1){plan.s=[gx,gy];plan.pick=2;statusEl.textContent="Jetzt das Ziel antippen";planUI();needsRender=true;return}
-  plan.g=[gx,gy]; plan.pick=0; planUI(); needsRender=true; runPlan();
-}
-async function runPlan(){
-  if(!plan.s||!plan.g){planStatus.textContent="Setze zuerst Start und Ziel.";return}
-  if(planBusy)return; planBusy=true;
-  planStatus.textContent="Route wird berechnet …"; statusEl.textContent="Route wird berechnet …";
-  try{
-    const w=await getPlanner(), dl=+$("planDl").value;
-    const hike=plan.mode==="hike";
-    if(hike&&!osmWays.some(x=>x.kind==="path"))throw new Error("die Wege aus OpenStreetMap sind noch nicht geladen. Versuch es in ein paar Sekunden nochmal");
-    const res=await new Promise((ok,bad)=>{w.onmessage=e=>{if(e.data.progress!==undefined)return;e.data.err?bad(new Error(e.data.err)):ok(e.data)};
-      w.postMessage({mode:plan.mode,ways:waysMask(),maxGrade:+$("planMaxG").value,s:plan.s.map(v=>Math.max(0,Math.floor(v/2))),g:plan.g.map(v=>Math.max(0,Math.floor(v/2))),dl,core:plan.core,coreElev:+$("planElev").value,weight:+$("planW").value})});
-    const pts=res.pts, ll=pts.map(p=>[xToLon(p[0]),yToLat(p[1])]);
-    if(hike){setRoute(ll,"Geplante Bergtour",`auf Wegen bis T${$("planMaxG").value}`); if(route){buildRouteLine();renderRouteInfo();fitRoute("3d");openPanel("plan")} planStatus.textContent=""; statusEl.textContent="Luftbild: "+orthoSrcName(); planBusy=false; return}
-    setRoute(ll,"Geplante Skitour",`Gefahrenstufe ${dl}${plan.core.some(Boolean)?", Kernzone "+["N","NO","O","SO","S","SW","W","NW"].filter((_,i)=>plan.core[i]).join(" ")+(+$("planElev").value>0?" ab "+fmt(+$("planElev").value)+" m":""):""}`);
-    if(route){
-      // indicator per sample: nearest point of the computed path, walking forward
-      let j=0; route.risk=route.samples.map(s=>{while(j<pts.length-1&&Math.hypot(pts[j+1][0]-s.gx,pts[j+1][1]-s.gy)<=Math.hypot(pts[j][0]-s.gx,pts[j][1]-s.gy))j++;return pts[j][2]});
-      // like Skitourenguru: mean indicator of the riskiest ~250 m of the route
-      const segs=route.samples.map((s,i)=>[route.risk[i],i?s.d-route.samples[i-1].d:0]).sort((a,b)=>b[0]-a[0]);
-      let L=0,sum=0; for(const [v,d] of segs){if(L>=250)break;const t=Math.min(d,250-L);sum+=v*t;L+=t}
-      route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo(); fitRoute("3d"); openPanel("plan");
-      $("routeSec").scrollIntoView({block:"start",behavior:"smooth"});
-    }
-    planStatus.textContent=""; statusEl.textContent="Luftbild: "+orthoSrcName();
-  }catch(e){planStatus.textContent="Keine Route gefunden: "+e.message; statusEl.textContent="Route nicht gefunden"}
-  planBusy=false;
+$("planPick").onclick=startPlan; $("tbPlan").onclick=startPlan;
+$("planSwap").onclick=()=>{if(plan.pts.length<2)return;plan.pts.reverse();recomputePlan()};
+$("planRun").onclick=()=>{if(plan.pts.length>1){recomputePlan();openPanel(null)}};
+$("pbUndo").onclick=()=>{plan.pts.pop();plan.segs.length=Math.max(0,plan.pts.length-1);applyPlanRoute()};
+$("pbClear").onclick=()=>{plan.pts=[];plan.segs=[];route=null;buildRouteLine();planInfo();needsRender=true};
+$("pbDone").onclick=endPlan;
+$("pbSettings").onclick=()=>openPanel("plan");
+document.querySelectorAll("[data-pmode]").forEach(b=>b.onclick=()=>setPlanMode(b.dataset.pmode));
+// markers for start, stops and goal
+const planMarks=[];
+function placePlanMarks(){
+  while(planMarks.length<plan.pts.length){const el=document.createElement("div");el.className="pmark";$("labels").appendChild(el);planMarks.push(el)}
+  planMarks.forEach((el,i)=>{
+    if(i>=plan.pts.length||(!plan.active&&!route)){el.style.display="none";return}
+    const last=i===plan.pts.length-1&&i>0; el.className="pmark"+(last?" goal":i?" via":"");
+    el.textContent=i===0?"Start":last?"Ziel":String(i);
+    project(plan.pts[i][0],plan.pts[i][1],el,0.05);
+  });
 }
 const RISK_COL=v=>v<1?"#2e9d4f":v<2?"#ee8a2b":"#d7301f";
 function gpxText(){
@@ -1671,7 +1762,6 @@ function downloadGpx(){
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
 }
 planUI();
-$("planSki").onclick=()=>setPlanMode("ski"); $("planHike").onclick=()=>setPlanMode("hike");
 
 // ---------- Offline areas: choose a frame in the top view, store terrain and imagery ----------
 const OFFLINE_CACHE="mmm-offline-v1", offSel=$("offSel"), offInfo=$("offInfo");
@@ -1712,7 +1802,8 @@ function areaPlan(b,maxZ){
   {const bb=pad(b,30),[x0,x1,y0,y1]=tileRange(bb,12);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const u=areaTileUrl(12,x,y);if(u)urls.add(u)}}
   {const bb=pad(b,130),[x0,x1,y0,y1]=tileRange(bb,8);for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)urls.add(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/8/${x}/${y}.png`)}
   const km=[(lonM(b.lon1)-lonM(b.lon0))*Math.cos(midLat*Math.PI/180)/1000,(latM(b.lat1)-latM(b.lat0))*Math.cos(midLat*Math.PI/180)/1000];
-  return {regions,urls:[...urls],km,mb:urls.size*0.024+regions.length*9};
+  const tirolR=regions.filter(([lo,la])=>lo>10.0&&lo<13.05&&la>46.6&&la<47.8).length;
+  return {regions,urls:[...urls],km,mb:urls.size*0.024+regions.length*9+tirolR*12};
 }
 function offEstimate(){
   const b=frameBox(); if(!b){offInfo.textContent="Kippe die Karte in die Draufsicht.";$("offGo").disabled=true;return null}
@@ -1756,6 +1847,8 @@ $("offGo").onclick=async()=>{
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
     await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks5",[]);
+    // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
+    if(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8){const w=Math.min(4096,MAXTEX);(()=>{const x0=cx-2000/2*cell, y1=cy+1500/2*cell;return shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000))})().forEach(u=>urls.push(u))}
   }
   const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
   const work=async()=>{while(k<urls.length){const u=urls[k++];
@@ -2036,7 +2129,6 @@ $("infoBtn").onclick=()=>openPanel("info");
 $("rbLayers").onclick=()=>openPanel(curTab==="map"?null:"map");
 $("qLayers").onclick=()=>openPanel(curTab==="map"?null:"map");
 $("qSlopes").onclick=()=>openPanel(curTab==="slopes"?null:"slopes");
-$("tbPlan").onclick=()=>openPanel("plan");
 $("tbOffline").onclick=()=>{openPanel(null);openOffSel()};
 $("rbNorth").onclick=()=>$("north").click();
 $("pointClose").onclick=()=>{$("pointCard").hidden=true;pinEl.hidden=true;lastMarker=null;needsRender=true};

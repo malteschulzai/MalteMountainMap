@@ -109,13 +109,71 @@ function astar(p,I){
   const path=[]; for(let k=goal;k>=0;k=k===start?-1:from[k])path.push(k); path.reverse();
   return path;
 }
+// Ski tours: A* on a 20 m lattice with the direction of travel in the state, so every kick turn costs
+// something. That gives fewer, longer zigzags, like a good skin track, instead of tight ladders.
+function astarSki(p,I){
+  const {w,h,n,z,cs,slope,dens}=T, ways=p.ways;
+  const fac=new Float32Array(n);
+  for(let k=0;k<n;k++){const wv=ways?ways[k]:0, t=dens[k];let f=t<35?0:t<65?(t-35)/30*1.2:1.2+(t-65)/35*4;
+    if(wv===8)f-=0.4; else if(wv===7)f=Math.min(f,0.2)-0.1; fac[k]=1+Math.max(-0.4,f)}
+  const nx=(w+1)>>1, ny=(h+1)>>1, NN=nx*ny, D=17;
+  const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
+  const ANG=D16.map(([x,y])=>Math.atan2(y,x));
+  // turn cost by change of heading: kick turns (more than ~110°) are expensive
+  const kick=1.6*(p.turn||1), TC=[];
+  for(let a=0;a<16;a++){TC.push([]);for(let b=0;b<16;b++){let d=Math.abs(ANG[a]-ANG[b]);if(d>Math.PI)d=2*Math.PI-d;const deg=d*57.2958;
+    TC[a].push(deg<=30?0:deg<=110?0.004*(deg-30):kick)}}
+  const sx=Math.min(nx-1,Math.round(p.s[0]/2)), sy=Math.min(ny-1,Math.round(p.s[1]/2)), gx=Math.min(nx-1,Math.round(p.g[0]/2)), gy=Math.min(ny-1,Math.round(p.g[1]/2));
+  const cell=(i,j)=>Math.min(h-1,2*j)*w+Math.min(w-1,2*i);
+  const goalN=gy*nx+gx, zg=z[cell(gx,gy)], HW=p.hw||1.6;   // weighted A*: a little less than optimal, many times faster
+  const g=new Float32Array(NN*D).fill(Infinity), from=new Int32Array(NN*D).fill(-1), closed=new Uint8Array(NN*D);
+  let hk=new Float32Array(1<<16), hv=new Int32Array(1<<16), hn=0;
+  const push=(v,f)=>{if(hn>=hk.length){const k2=new Float32Array(hk.length*2),v2=new Int32Array(hk.length*2);k2.set(hk);v2.set(hv);hk=k2;hv=v2}
+    let i=hn++;while(i>0){const pa=(i-1)>>1;if(hk[pa]<=f)break;hk[i]=hk[pa];hv[i]=hv[pa];i=pa}hk[i]=f;hv[i]=v};
+  const pop=()=>{const top=hv[0],lf=hk[--hn],lv=hv[hn];let i=0;for(;;){const l=2*i+1,r=l+1;let m=-1,mf=lf;if(l<hn&&hk[l]<mf){m=l;mf=hk[l]}if(r<hn&&hk[r]<mf){m=r;mf=hk[r]}if(m<0)break;hk[i]=hk[m];hv[i]=hv[m];i=m}hk[i]=lf;hv[i]=lv;return top};
+  // cost of one step from lattice node (i,j) in direction dd, without the turn
+  const stepCost=(i,j,dd)=>{const ii=i+D16[dd][0]/2, jj=j+D16[dd][1]/2;
+    const c=cell(i,j), m=cell(ii,jj), mid=Math.min(h-1,Math.round((2*j+2*jj)/2))*w+Math.min(w-1,Math.round((2*i+2*ii)/2));
+    const d=Math.hypot(D16[dd][0],D16[dd][1])*cs[Math.min(h-1,2*j)], dz=z[m]-z[c], ang=Math.atan(Math.abs(dz)/d)*57.2958;
+    let base=d*0.015+(dz>0?dz*0.15:-dz*0.02);
+    if(ang>27)base*=1+((ang-27)/4)**2;                       // track steeper than a comfortable skin track
+    if(slope[m]>50||slope[mid]>50)base*=8;                    // cliffs
+    base*=(fac[c]+fac[mid]+fac[m])/3;
+    const hz=(I[c]+I[mid]+I[m])/3; return base+d*0.015*p.weight*30*hz*hz};
+  // exact remaining cost without turns (backwards Dijkstra from the goal) as heuristic: the search then stays in a narrow corridor
+  const H2=new Float32Array(NN).fill(Infinity), dn=new Uint8Array(NN);
+  {let qk=new Float32Array(1<<16), qv=new Int32Array(1<<16), qn=0;
+    const qpush=(v,f)=>{if(qn>=qk.length){const k2=new Float32Array(qk.length*2),v2=new Int32Array(qk.length*2);k2.set(qk);v2.set(qv);qk=k2;qv=v2}
+      let i=qn++;while(i>0){const pa=(i-1)>>1;if(qk[pa]<=f)break;qk[i]=qk[pa];qv[i]=qv[pa];i=pa}qk[i]=f;qv[i]=v};
+    const qpop=()=>{const top=qv[0],lf=qk[--qn],lv=qv[qn];let i=0;for(;;){const l=2*i+1,r=l+1;let m=-1,mf=lf;if(l<qn&&qk[l]<mf){m=l;mf=qk[l]}if(r<qn&&qk[r]<mf){m=r;mf=qk[r]}if(m<0)break;qk[i]=qk[m];qv[i]=qv[m];i=m}qk[i]=lf;qv[i]=lv;return top};
+    H2[goalN]=0; qpush(goalN,0); const sN=sy*nx+sx;
+    while(qn){const u=qpop(); if(dn[u])continue; dn[u]=1; if(u===sN&&false)break;
+      const i=u%nx, j=(u-i)/nx;
+      for(let dd=0;dd<16;dd++){const ii=i-D16[dd][0]/2, jj=j-D16[dd][1]/2; if(ii<0||jj<0||ii>=nx||jj>=ny)continue;
+        const v=jj*nx+ii; if(dn[v])continue; const nd=H2[u]+stepCost(ii,jj,dd); if(nd<H2[v]){H2[v]=nd;qpush(v,nd)}}}
+  }
+  const hEst=(i,j)=>H2[j*nx+i];
+  const st=(sy*nx+sx)*D+16; if(!(H2[sy*nx+sx]<Infinity))return null; g[st]=0; push(st,hEst(sx,sy)); let it=0, best=-1;
+  while(hn){
+    const s=pop(); if(closed[s])continue; closed[s]=1;
+    const node=(s/D)|0, din=s-node*D; if(node===goalN){best=s;break}
+    if(++it%300000===0)postMessage({progress:it/(NN*4)});
+    const i=node%nx, j=(node-i)/nx;
+    for(let dd=0;dd<16;dd++){const ii=i+D16[dd][0]/2, jj=j+D16[dd][1]/2; if(ii<0||jj<0||ii>=nx||jj>=ny)continue;
+      const ns=(jj*nx+ii)*D+dd; if(closed[ns])continue;
+      const ng=g[s]+stepCost(i,j,dd)+(din<16?TC[din][dd]:0); if(ng<g[ns]){g[ns]=ng;from[ns]=s;push(ns,ng+hEst(ii,jj))}}
+  }
+  if(best<0)return null;
+  const out=[]; for(let s=best;s>=0;s=from[s]){const node=(s/D)|0, i=node%nx, j=(node-i)/nx; out.push(cell(i,j)); if(s===st)break}
+  return out.reverse();
+}
 onmessage=e=>{
   const d=e.data;
   try{
     if(d.prep){prep(d);postMessage({ready:true});return}
     if(!T)throw new Error("Gelände fehlt");
     const I=d.mode==="hike"?new Float32Array(T.n):hazard(d);
-    const path=astar(d,I);
+    const path=d.mode==="hike"?astar(d,I):astarSki(d,I);
     if(!path){postMessage({err:"Keine Verbindung gefunden."});return}
     const pts=path.map(k=>{const x=k%T.w,y=(k-x)/T.w;return [x*2+1,y*2+1,I[k],T.slope[k]]});
     postMessage({pts});

@@ -95,6 +95,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .me{position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 6px rgba(26,115,232,.25),0 1px 4px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none}
 .pmark{position:absolute;left:0;top:0;transform:translate(-50%,-100%);pointer-events:none;font:700 11px/1 var(--font-body);color:#fff;background:#2e9d4f;border:2px solid #fff;border-radius:999px;padding:4px 7px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .pmark.goal{background:#1b2420}
+.pmark.via{background:#fff;color:#1b2420;border-color:#1b2420;padding:3px 7px}
+.planbar{z-index:6}
 .tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
 .offsel{position:absolute;inset:0;z-index:6;pointer-events:none}
 .offframe{position:absolute;left:8%;right:8%;top:16%;bottom:34%;border:3px solid #1a73e8;border-radius:6px;box-shadow:0 0 0 4000px rgba(10,20,30,.4)}
@@ -279,6 +281,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <div id="ovMap"></div>
       <div class="ovbar card"><div><b>Übersicht</b><div class="hint" id="ovHint">Tippe einen Ort an, um ihn in 3D zu öffnen. Blau: geladenes Gebiet, grün: offline gespeichert.</div></div><button class="btn primary" id="ovClose">Zurück zu 3D</button></div>
     </div>
+    <div class="offbar planbar" id="planBar" hidden>
+      <div class="row" style="justify-content:space-between"><div class="row" role="group" aria-label="Tourart"><button class="chip" data-pmode="ski" aria-pressed="true">Skitour</button><button class="chip" data-pmode="hike" aria-pressed="false">Bergtour</button></div><button class="btn" id="pbSettings">Einstellungen</button></div>
+      <div id="pbInfo" style="font-size:14px;line-height:1.35">Tippe den Startpunkt in die Karte.</div>
+      <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
+    </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div id="pointInfo"></div>
@@ -376,9 +383,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 
       <div data-tab="plan"><div class="sec" id="planSec">
         <h2>Tour planen</h2>
-        <div class="row" role="group" aria-label="Tourart" style="margin-bottom:8px"><button class="chip" id="planSki" aria-pressed="true">Skitour</button><button class="chip" id="planHike" aria-pressed="false">Bergtour</button></div>
+        <div class="row" role="group" aria-label="Tourart" style="margin-bottom:8px"><button class="chip" data-pmode="ski" aria-pressed="true">Skitour</button><button class="chip" data-pmode="hike" aria-pressed="false">Bergtour</button></div>
         <p class="hint" id="planHint">Setze Start und Ziel. Die Skitour sucht einen Weg mit wenig Lawinengelände, angenehmer Steilheit und ohne dichten Wald. Gib dazu Gefahrenstufe und Kernzone aus dem Lagebericht an.</p>
-        <div class="row" style="margin:8px 0"><button class="btn primary" id="planPick">Start und Ziel setzen</button><button class="btn" id="planSwap">Tauschen</button></div>
+        <div class="row" style="margin:8px 0"><button class="btn primary" id="planPick">Route zeichnen</button><button class="btn" id="planSwap">Umkehren</button></div>
         <div class="wctl" id="planAval">
           <label for="planDl">Gefahrenstufe</label>
           <select id="planDl"><option value="1">1 gering</option><option value="2" selected>2 mäßig</option><option value="3">3 erheblich</option><option value="4">4 groß</option></select>
@@ -398,7 +405,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <label for="planW">Gewichtung</label>
           <div class="rng"><input type="range" id="planW" min="0.3" max="3" step="0.1" value="1"><output id="planWOut">ausgewogen</output></div>
         </div>
-        <div class="row"><button class="btn" id="planRun">Route berechnen</button></div>
+        <div class="row"><button class="btn" id="planRun">Mit diesen Einstellungen neu berechnen</button></div>
         <p class="hint" id="planStatus" aria-live="polite"></p>
       </div></div>
       <div data-tab="plan"><div class="sec" id="routeSec">
@@ -461,12 +468,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=46"></script>
-<script src="js/config.js?v=46"></script>
-<script src="js/geo.js?v=46"></script>
-<script src="js/borders.js?v=46"></script>
-<script src="js/sources.js?v=46"></script>
-<script src="js/region.js?v=46"></script>
-<script src="js/app.js?v=46"></script>
+<script src="data/nordkette-meta.js?v=48"></script>
+<script src="js/config.js?v=48"></script>
+<script src="js/geo.js?v=48"></script>
+<script src="js/borders.js?v=48"></script>
+<script src="js/sources.js?v=48"></script>
+<script src="js/region.js?v=48"></script>
+<script src="js/app.js?v=48"></script>
 </body>
 </html>
