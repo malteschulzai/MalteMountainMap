@@ -135,9 +135,9 @@ let winterKey=null;
 // lo/hi: how much "terrain snow index" is needed for full cover; steep: slope range where snow slides off;
 // form/wind: how strongly ridges are scoured and hollows filled; sun: melt on south faces
 const PRESETS=[
-  {n:1500,s:1900,bonus:-0.30,form:0.75,wind:18,sun:0.50,steepLo:34,steepHi:50,lo:0.35,hi:0.98,bury:0.85,crown:0.20,ctx:0.75},
-  {n:1000,s:1400,bonus:-0.08,form:0.55,wind:22,sun:0.40,steepLo:40,steepHi:56,lo:0.28,hi:0.84,bury:0.60,crown:0.42,ctx:0.9},
-  {n:650, s:950, bonus:0.28, form:0.40,wind:30,sun:0.30,steepLo:46,steepHi:62,lo:0.18,hi:0.62,bury:0.35,crown:0.65,ctx:1}];
+  {n:1500,s:1900,bonus:-0.30,form:0.75,wind:18,sun:0.50,steepLo:34,steepHi:50,lo:0.35,hi:0.98,bury:0.9,crown:0.20,ctx:0.75},
+  {n:1000,s:1400,bonus:-0.08,form:0.55,wind:22,sun:0.40,steepLo:40,steepHi:56,lo:0.28,hi:0.84,bury:0.5,crown:0.42,ctx:0.9},
+  {n:650, s:950, bonus:0.28, form:0.40,wind:30,sun:0.30,steepLo:46,steepHi:62,lo:0.18,hi:0.62,bury:0.0,crown:0.65,ctx:1}];
 async function computeWinter(quiet){
   const key=[state.snow,state.wind,state.lineN,state.lineS].join("|"); if(key===winterKey)return;
   if(!quiet)loadEl.hidden=false;
@@ -303,6 +303,8 @@ vec3 hyps(float e){
   return mix(c,vec3(.94,.94,.93),smoothstep(2200.,2700.,e));
 }
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
 vec3 snowCol(float s){ return mix(vec3(.79,.855,.95), vec3(1.0), smoothstep(0.08,0.66,s)); }
 void main(){
   vec2 dUv=vec2(vUv.x,1.0-vUv.y);
@@ -351,11 +353,14 @@ void main(){
     tr *= 1.0-smoothstep(42.0,55.0,slope); sr *= 1.0-smoothstep(45.0,58.0,slope);
     float crownT=obj*tr*(1.0-0.85*treesOn);
     if(ortho) crownT=max(crownT, smoothstep(0.30,0.13,olum)*tr);
-    float crownS=obj*sr*bury;
+    // Latschen: clumps of a few metres; "bury" decides which share still sticks out of the snow
+    float clump=0.62*vnoise(vWorld.xz*11.0)+0.26*vnoise(vWorld.xz*32.0)+0.12*obj;
+    sr*=1.0-smoothstep(2050.0,2250.0,vElev);
+    float crownS=mix(sr*smoothstep(1.0-bury-0.07,1.0-bury+0.07,clump), sr*bury*0.8, smoothstep(28.0,70.0,length(vWorld-camPos)));
     vec3 crownC=mix(vec3(.08,.14,.10)*(0.55+0.95*so), snowCol(so)*0.97, crownSnow*smoothstep(0.48,0.85,so));
-    vec3 shrubC=mix(vec3(.17,.23,.15)*(0.6+0.8*so), snowCol(so), 0.35);
+    vec3 shrubC=mix(vec3(.09,.16,.09)*(0.55+0.9*so), snowCol(so), 0.18);
     vec3 w=snowCol(isPatch>0.5?mix(sg,geoL,0.55):sg);
-    w=mix(w, shrubC, clamp(crownS,0.0,1.0)*0.85);
+    w=mix(w, shrubC, clamp(crownS,0.0,1.0)*0.92);
     w=mix(w, crownC, clamp(crownT*1.15,0.0,1.0)*0.93);
     vec3 under=col;
     if(ortho&&isPatch<0.5){ vec3 rk=clamp((under-0.45)*1.35+0.36,0.0,1.0); under=mix(under,rk,rock); }
@@ -913,7 +918,7 @@ async function loadOsm(){
     const pts=el.geometry.map(g=>[lonToX(g.lon),latToY(g.lat)]);
     if(!pts.some(p=>inside(p[0],p[1])))continue;
     let kind,color,dashed=false,label,grade=0,air=false;
-    if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
+    if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color="#9be46a";dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
     else if(tg["piste:type"]==="downhill"){if(tg.area==="yes")continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
     else if(tg["piste:type"]==="skitour"){kind="piste";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute"}
     else if(tg.aerialway||tg.railway==="funicular"){kind="lift";color="#1b2420";air=!!tg.aerialway;label=(tg.name?tg.name+" · ":"")+(LIFT_NAME[tg.aerialway||"funicular"]||"Lift")}
@@ -925,7 +930,7 @@ async function loadOsm(){
       if(len*CELL>250){let acc=0,half=len/2;
         for(let i=1;i<pts.length;i++){const d=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
           if(acc+d>=half){const f=(half-acc)/d,gx=pts[i-1][0]+(pts[i][0]-pts[i-1][0])*f,gy=pts[i-1][1]+(pts[i][1]-pts[i-1][1])*f;
-            if(inside(gx,gy))labels.push({t:"grade",name:"T"+grade,gx,gy,prio:-3000+grade,color:SAC_COL[grade]});break}
+            if(inside(gx,gy))labels.push({t:"grade",name:"T"+grade,gx,gy,prio:-3000+grade});break}
           acc+=d}}
     }
   }
@@ -936,13 +941,13 @@ function scheduleOverlay(){clearTimeout(overlayTimer);overlayTimer=setTimeout(bu
 function buildOverlay(){
   overlayMeshes.forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose()}); overlayMeshes=[];
   if(!osmWays.length){needsRender=true;return}
-  const groups={casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
+  const groups={shadow:{p:[],c:[]},casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
   const step=Math.max(0.5,6/CELL), lift=0.025;
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
   const P=(gx,gy,up)=>[(gx-W/2)*sc,heightGrid(gx,gy)/U*state.exag+up,(gy-H/2)*sc];
   for(const w of osmWays){
     if(w.kind==="path"&&!state.paths)continue; if(w.kind!=="path"&&!state.pistes)continue;
-    col.set(w.color); const g=w.dashed?groups.dashed:groups.solid, cas=!w.dashed;
+    col.set(w.color); const g=w.dashed?groups.dashed:groups.solid, cas=!w.dashed, shadow=w.kind==="path";
     for(let i=0;i<w.pts.length-1;i++){
       const [ax,ay]=w.pts[i],[bx,by]=w.pts[i+1]; if(!inside(ax,ay)||!inside(bx,by))continue;
       const n=w.air?1:Math.max(1,Math.ceil(Math.hypot(bx-ax,by-ay)/step)), up=w.air?0.07:lift;
@@ -950,14 +955,15 @@ function buildOverlay(){
       for(let s=1;s<=n;s++){const f=s/n, cur=P(ax+(bx-ax)*f,ay+(by-ay)*f,up);
         g.p.push(...prev,...cur); g.c.push(col.r,col.g,col.b,col.r,col.g,col.b);
         if(cas){groups.casing.p.push(...prev,...cur);groups.casing.c.push(1,1,1,1,1,1)}
+        if(shadow){groups.shadow.p.push(...prev,...cur);groups.shadow.c.push(.08,.18,.06,.08,.18,.06)}
         prev=cur}
     }
   }
   const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
-  [["casing",5.5,false,1],["solid",3,false,2],["dashed",3,true,3]].forEach(([k,lw,dashed,order])=>{
+  [["shadow",3.6,false,1,0.4],["casing",5.5,false,1,1],["solid",3,false,2,1],["dashed",2.2,true,3,1]].forEach(([k,lw,dashed,order,op])=>{
     const g=groups[k]; if(!g.p.length)return;
     const geo=new THREE.LineSegmentsGeometry(); geo.setPositions(g.p); geo.setColors(g.c);
-    const mat=new THREE.LineMaterial({vertexColors:true,linewidth:lw,resolution:res,dashed,dashSize:0.06,gapSize:0.04,dashScale:1,depthTest:true});
+    const mat=new THREE.LineMaterial({vertexColors:true,linewidth:lw,resolution:res,dashed,dashSize:0.05,gapSize:0.035,dashScale:1,depthTest:true,transparent:op<1,opacity:op});
     if(dashed)mat.defines.USE_DASH="";
     const m=new THREE.LineSegments2(geo,mat); if(dashed)m.computeLineDistances(); m.renderOrder=order; scene.add(m); overlayMeshes.push(m);
   });
@@ -987,7 +993,8 @@ function project(gx,gy,el,lift){
   v3.copy(gridToWorld(gx,gy,lift)).project(camera);
   const vis=v3.z<1&&v3.x>-1.1&&v3.x<1.1&&v3.y>-1.1&&v3.y<1.1;
   el.style.display=vis?"":"none";
-  if(vis)el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) translate(-50%,${el.classList.contains("rdot")?"-50%":"-100%"})`;
+  const off=el.classList.contains("grade")?"translate(7px,-50%)":el.classList.contains("rdot")?"translate(-50%,-50%)":"translate(-50%,-100%)";
+  if(vis)el.style.transform=`translate(${(v3.x+1)/2*w}px,${(1-v3.y)/2*h}px) ${off}`;
   return vis?[(v3.x+1)/2*w,(1-v3.y)/2*h]:null;
 }
 function occluded(wp){
