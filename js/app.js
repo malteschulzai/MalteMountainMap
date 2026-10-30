@@ -1066,15 +1066,21 @@ function osmQueries(g){
   const [w,s]=MMMGeo.mercToLonLat(g.x0,g.y1-g.H*g.cell), [e,n]=MMMGeo.mercToLonLat(g.x0+g.W*g.cell,g.y1);
   const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
   const q1=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
-  const q2=`[out:json][timeout:90];(way["highway"="track"](${bb});way["highway"~"^(path|footway)$"][!"sac_scale"](${bb}););out geom;`;
+  const q2=`[out:json][timeout:90];(way["highway"="track"](${bb});way["highway"="path"][!"sac_scale"](${bb}););out geom;`;
   const base="https://mmm.local/osm/"+bb;
   return {q1,q2,base};
 }
 async function loadOsm(){
   const {q1,q2,base}=osmQueries({x0:G.x0,y1:G.y1,W,H,cell:G.cell});
-  const [j1,j2]=await Promise.all([overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]),overpass(q2,base+"/tracks5",[base+"/tracks4"])]);
+  // names, lifts and marked paths first, forest roads and unrated paths whenever they arrive
+  const p1=overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]), p2=overpass(q2,base+"/tracks6",[base+"/tracks5",base+"/tracks4"]);
+  let j1=null,j2=null;
+  j1=await p1; if(j1)processOsm(j1,null);
+  j2=await p2; if(j2)processOsm(j1,j2);
   if(!j1&&!j2){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar, neuer Versuch in 30 s";setTimeout(loadOsm,30000);return}
   if(!j2)setTimeout(loadOsm,60000);
+}
+function processOsm(j1,j2){
   const seen=new Set(), json={elements:[]};
   [j1,j2].forEach(j=>j&&j.elements.forEach(el=>{const k=el.type+el.id; if(!seen.has(k)){seen.add(k);json.elements.push(el)}}));
   statusEl.textContent=shared.orthoReady.value?"Luftbild: "+orthoSrcName():statusEl.textContent;
@@ -1846,7 +1852,7 @@ $("offGo").onclick=async()=>{
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
-    await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks5",[]);
+    await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks6",[]);
     // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
     if(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8){const w=Math.min(4096,MAXTEX);(()=>{const x0=cx-2000/2*cell, y1=cy+1500/2*cell;return shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000))})().forEach(u=>urls.push(u))}
   }
