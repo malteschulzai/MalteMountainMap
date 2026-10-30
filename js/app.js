@@ -1046,10 +1046,10 @@ const PISTE_COL={novice:"#2a7de1",easy:"#2a7de1",intermediate:"#d7301f",advanced
 const PISTE_NAME={novice:"blaue Piste",easy:"blaue Piste",intermediate:"rote Piste",advanced:"schwarze Piste",expert:"schwarze Piste",freeride:"Skiroute",extreme:"Skiroute"};
 const LIFT_NAME={cable_car:"Seilbahn",gondola:"Gondelbahn",chair_lift:"Sessellift",drag_lift:"Schlepplift","t-bar":"Schlepplift","j-bar":"Schlepplift",platter:"Tellerlift",rope_tow:"Seillift",magic_carpet:"Förderband",mixed_lift:"Kombibahn",funicular:"Standseilbahn"};
 var osmWays=[];
-async function overpass(q,key,oldKeys){
+async function overpass(q,key,oldKeys,rounds){
   let cache=null;
   try{cache=await caches.open("mmm-osm"); const hit=await cache.match(key); if(hit)return await hit.json()}catch(e){}
-  for(let round=0;round<3;round++){
+  for(let round=0;round<(rounds||3);round++){
     for(const host of OVERPASS){
       try{const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),45000);
         const r=await fetch(host+"?data="+encodeURIComponent(q),{signal:ctl.signal}); const tx=await r.text(); clearTimeout(to);
@@ -1848,9 +1848,16 @@ $("offDetail").onchange=offEstimate;
 controls.addEventListener("change",()=>{if(!offSel.hidden){clearTimeout(offEstimate.t);offEstimate.t=setTimeout(offEstimate,150)}});
 let offBusy=false;
 $("offGo").onclick=async()=>{
-  const e=offEstimate(); if(!e||offBusy)return; offBusy=true; offSel.hidden=true; controls.maxDistance=170; openPanel("offline");
-  const st=$("offlineStatus"), {b,p}=e;
-  if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";offBusy=false;return}
+  if(offBusy){offSel.hidden=true;controls.maxDistance=170;openPanel("offline");$("offlineStatus").textContent="Es läuft schon ein Download. "+$("offlineStatus").textContent;return}
+  const e=offEstimate(); if(!e){offInfo.textContent="Kippe die Karte in die Draufsicht und versuch es nochmal.";return}
+  offBusy=true; offSel.hidden=true; controls.maxDistance=170; openPanel("offline");
+  try{await offDownload(e)}catch(err){console.warn(err);$("offlineStatus").textContent="Download abgebrochen: "+err.message}
+  offBusy=false; statusEl.textContent="Luftbild: "+orthoSrcName();
+};
+async function offDownload(e){
+  // progress also in the small status line on the map, so it stays visible with the panel closed
+  const st={set textContent(v){$("offlineStatus").textContent=v;statusEl.textContent=v}, get textContent(){return $("offlineStatus").textContent}}, {b,p}=e;
+  if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";return}
   try{navigator.storage&&navigator.storage.persist&&await navigator.storage.persist()}catch(err){}
   const shell=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png","js/region-worker.js?v="+APPV,"js/planner-worker.js?v="+APPV].map(u=>new URL(u,location.href).href);
   [...document.querySelectorAll("script[src]")].forEach(s=>shell.push(s.src));
@@ -1867,7 +1874,7 @@ $("offGo").onclick=async()=>{
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
-    const o1=await overpass(q1,base+"/main4",[]), o2=await overpass(q2,base+"/tracks6",[]); if(!o1||!o2)failO++;
+    const o1=await overpass(q1,base+"/main4",[],1), o2=await overpass(q2,base+"/tracks6",[],1); if(!o1||!o2)failO++;
     // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
     if(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8){const w=Math.min(4096,MAXTEX);(()=>{const x0=cx-2000/2*cell, y1=cy+1500/2*cell;return shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000))})().forEach(u=>urls.push(u))}
   }
@@ -1882,8 +1889,7 @@ $("offGo").onclick=async()=>{
   let est="";try{const q=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(q.usage/1e6)} MB.`}catch(err){}
   const miss=[failR?failR+" Geländestücke":"",failO?"Wege und Namen für "+failO+" Gebiete (OpenStreetMap-Server ausgelastet)":"",fail>urls.length*0.05?fail+" Bilder":""].filter(Boolean);
   st.textContent=(miss.length?`Gespeichert, aber es fehlen: ${miss.join(", ")}. Bei Empfang einfach nochmal herunterladen, Vorhandenes wird nicht doppelt geladen.`:"Bereich ist offline verfügbar, inklusive Wege und Namen.")+est;
-  offBusy=false;
-};
+}
 function renderAreas(){
   const box=$("offList"), areas=loadAreas(); box.innerHTML="";
   areas.forEach(a=>{const d=document.createElement("div");d.className="offitem";
