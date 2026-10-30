@@ -161,7 +161,11 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:true,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+// settings survive switching to another area of Tirol
+const SAVE_KEYS=["base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
+try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
 let needsRender=true;
 
 // ---------- three.js ----------
@@ -1308,7 +1312,7 @@ sheetToggle.onclick=e=>{e.stopPropagation();setSheet(sheetBody.hidden)};
 $("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,button"))return;setSheet(sheetBody.hidden)});
 
 // ---------- Places: search and loading another area of Tirol ----------
-function goTo(lon,lat,name){location.href="./?at="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
+function goTo(lon,lat,name){saveState();location.href="./?at="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
 let searchTimer=null, searchSeq=0;
 async function runSearch(q){
   const out=$("searchResults"), my=++searchSeq;
@@ -1330,13 +1334,45 @@ $("search").addEventListener("keydown",e=>{if(e.key==="Enter"){clearTimeout(sear
 $("searchBtn").onclick=e=>{e.stopPropagation();setSheet(true);$("search").focus()};
 $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 // offer to load the area in the middle of the screen once it is far from the loaded area
+// panning towards the edge loads the next area automatically: data is fetched in the background,
+// then the page switches over and keeps the camera where it was
 const hereBtn=$("loadHere");
+let autoTimer=null, prefetching=null;
 function checkHere(){
   const [gx,gy]=targetGrid(), d=camera.position.distanceTo(controls.target);
-  const out=gx<W*0.12||gx>W*0.88||gy<H*0.12||gy>H*0.88;
-  hereBtn.hidden=!(out&&d<120);
+  const out=gx<W*0.15||gx>W*0.85||gy<H*0.15||gy>H*0.85;
+  clearTimeout(autoTimer);
+  if(!out||d>150){if(!prefetching)hereBtn.hidden=true;return}
+  autoTimer=setTimeout(autoLoad,1200);
 }
-hereBtn.onclick=()=>{const [gx,gy]=targetGrid();goTo(xToLon(gx),yToLat(gy),"")};
+async function autoLoad(){
+  const [gx,gy]=targetGrid(), lon=+xToLon(gx).toFixed(5), lat=+yToLat(gy).toFixed(5);
+  hereBtn.hidden=false;
+  if(lon<10.05||lon>12.98||lat<46.62||lat>47.8){hereBtn.textContent="Außerhalb von Tirol";return}
+  hereBtn.textContent="Lade neuen Bereich …";
+  const key=lon+","+lat; prefetching=key;
+  let ok=false; try{ok=await window.MMM_prefetchRegion(lon,lat)}catch(e){}
+  if(prefetching!==key)return;
+  prefetching=null;
+  if(!ok){hereBtn.textContent="Bereich gerade nicht erreichbar";return}
+  const [gx2,gy2]=targetGrid(); if(Math.hypot(gx2-gx,gy2-gy)*CELL>2000){checkHere();return}
+  navigateKeepView(lon,lat);
+}
+function navigateKeepView(lon,lat){
+  saveState();
+  const s=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+  location.href=`./?at=${lon},${lat}&cam=${s.radius.toFixed(3)},${s.theta.toFixed(4)},${s.phi.toFixed(4)}`;
+}
+hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
+// put buttons, selects and sliders in line with restored settings
+function syncUI(){
+  const chips={lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
+  for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
+  $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
+  $("snowLvl").value=state.snow; $("wind").value=state.wind; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
+  $("exag").value=state.exag; $("exagOut").textContent=fmt(state.exag,1)+"×"; shared.exag.value=state.exag;
+  $("legendPaths").hidden=!state.paths;
+}
 
 // ---------- Start ----------
 await tick("Karte wird gezeichnet …");
@@ -1346,10 +1382,16 @@ function resize(){
   routeLines.forEach(l=>l.material.resolution.set(w,h)); overlayMeshes.forEach(m=>m.material.resolution.set(w,h)); needsRender=true; if(route)drawProfile();
 }
 new ResizeObserver(resize).observe(mapEl); resize();
+syncUI();
 if(REG){
-  const [lo,la]=META.center, gx=lonToX(lo), gy=latToY(la); lookAt(gx,gy+180,30,"3d");
+  const [lo,la]=META.center, gx=lonToX(lo), gy=latToY(la);
+  const cam=(new URLSearchParams(location.search).get("cam")||"").split(",").map(Number);
+  if(cam.length===3&&cam.every(isFinite)){
+    const tg=gridToWorld(gx,gy); controls.target.copy(tg);
+    camera.position.copy(tg).add(new THREE.Vector3().setFromSpherical(new THREE.Spherical(cam[0],cam[2],cam[1])));
+    camera.lookAt(tg); needsRender=true; scheduleLOD();
+  } else { lookAt(gx,gy+180,30,"3d"); placeMarker(gx,gy) }
   if(META.name){$("subtitle").textContent=META.name+" · Laserscan-Gelände Tirol"}else $("subtitle").textContent="Tirol · Laserscan-Gelände";
-  placeMarker(gx,gy);
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
 if(state.winter)await computeWinter();
 applyUniforms();
