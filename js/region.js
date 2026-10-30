@@ -3,11 +3,12 @@
 // 5 m terrain grid (Web Mercator), vegetation from surface minus terrain, tree positions, surrounding terrain.
 (function(){
 "use strict";
-const qs=new URLSearchParams(location.search), at=qs.get("at");
-const GEO=window.MMMGeo, R=6378137, ORIGIN=Math.PI*R;
+const root=self, isMain=typeof document!=="undefined";
+const GEO=root.MMMGeo, R=6378137, ORIGIN=Math.PI*R;
 const WCS="https://gis.tirol.gv.at/arcgis/services/Service_Public/terrain/MapServer/WCSServer";
-const say=m=>{const l=document.getElementById("loading");if(l){l.hidden=false;l.textContent=m}};
-const urls=[];
+let say=()=>{};
+let urls=[];
+const mkCanvas=(w,h)=>{if(typeof OffscreenCanvas!=="undefined")return new OffscreenCanvas(w,h);const c=document.createElement("canvas");c.width=w;c.height=h;return c};
 
 async function cachedFetch(url,onBytes){
   let c=null; try{c=await caches.open("mmm-regions")}catch(e){}
@@ -59,7 +60,7 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
 }
 // global terrain (Terrarium, ~25 m at z12) to fill everything outside the Land Tirol data
 // Mapbox terrain only when explicitly enabled (Raster Tiles API is not part of Mapbox demo access)
-const MBT=(window.MMM_CONFIG||{}).mapboxDem?(window.MMM_CONFIG||{}).mapboxToken||"":"";
+const MBT=(root.MMM_CONFIG||{}).mapboxDem?(root.MMM_CONFIG||{}).mapboxToken||"":"";
 const DEMZ=MBT?14:13;
 function terrUrls(z,mx0,mx1,my0,my1){
   const tileM=2*ORIGIN/2**z, out=[];
@@ -71,7 +72,7 @@ function terrUrls(z,mx0,mx1,my0,my1){
 async function terrariumGrid(mx0,mx1,my0,my1,nx,ny){
   const z=DEMZ, tileM=2*ORIGIN/2**z, list=terrUrls(z,mx0,mx1,my0,my1), mb=MBT&&z>=13;
   const tx0=Math.min(...list.map(t=>t.tx)), ty0=Math.min(...list.map(t=>t.ty)), tw=Math.max(...list.map(t=>t.tx))-tx0+1, th=Math.max(...list.map(t=>t.ty))-ty0+1;
-  const cv=document.createElement("canvas"); cv.width=tw*256; cv.height=th*256;
+  const cv=mkCanvas(tw*256,th*256);
   const ctx=cv.getContext("2d",{willReadFrequently:true}); let ok=0;
   await Promise.all(list.map(t=>cachedFetch(t.url).then(b=>createImageBitmap(new Blob([b]))).then(bm=>{ctx.drawImage(bm,(t.tx-tx0)*256,(t.ty-ty0)*256);ok++;urls.push(t.url)}).catch(()=>{})));
   if(ok<list.length)return null;
@@ -110,7 +111,7 @@ async function surroundings(cx,cy,cosl){
   try{
     const z=10, tileM=2*ORIGIN/2**z, hx=34000/cosl, hy=28000/cosl; // same frame as terrariumTiles
     const tx0=Math.floor((cx-hx+ORIGIN)/tileM), tx1=Math.floor((cx+hx+ORIGIN)/tileM), ty0=Math.floor((ORIGIN-(cy+hy))/tileM), ty1=Math.floor((ORIGIN-(cy-hy))/tileM);
-    const cv=document.createElement("canvas"); cv.width=(tx1-tx0+1)*256; cv.height=(ty1-ty0+1)*256;
+    const cv=mkCanvas((tx1-tx0+1)*256,(ty1-ty0+1)*256);
     const ctx=cv.getContext("2d",{willReadFrequently:true}); let ok=0;
     await Promise.all([]);
     const jobs=[];
@@ -135,33 +136,30 @@ function frame(lon,lat){
   return {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0};
 }
 // download a region's data into the cache in the background, so switching to it is quick
-window.MMM_prefetchRegion=async(lon,lat,onBytes)=>{
+async function prefetchRaw(lon,lat,onBytes){
   const f=frame(lon,lat), zone=lon<11.75?28:31;
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
            ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(DEMZ,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   let err="";
-  const natP=window.MMMSrc?window.MMMSrc.demGrid(f.x0,f.x1,f.y0,f.y1,f.W,f.H).catch(()=>null):Promise.resolve(null);
+  const natP=root.MMMSrc?root.MMMSrc.demGrid(f.x0,f.x1,f.y0,f.y1,f.W,f.H).catch(()=>null):Promise.resolve(null);
   const res=await Promise.all(u.map((x,i)=>i<2&&!tirol?Promise.resolve(false):cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
   await natP;
   // outside Tirol the Land Tirol request may fail, the global terrain is enough then
   return {ok:res[0]||res.slice(3).some(Boolean),err};
-};
-if(!at)return;
-const parts=at.split(",").map(Number), lon=parts[0], lat=parts[1];
-if(!isFinite(lon)||!isFinite(lat))return;
-const name=(qs.get("n")||"").slice(0,80);
-window.MMM_REGION_PROMISE=(async()=>{
+}
+async function buildRegion(lon,lat,name,sayFn){
+  say=sayFn||(()=>{}); urls=[];
   const {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0}=frame(lon,lat);
-  const src=window.MMMSrc&&window.MMMSrc.sourceName(lon,lat);
+  const src=root.MMMSrc&&root.MMMSrc.sourceName(lon,lat);
   say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":src==="swisstopo"||src==="IGN"?`Gelände wird geladen (${src}) …`:"Gelände wird geladen …");
   const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
   const VW=W/2, VH=H/2;
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   const domP=!tirol?Promise.resolve(null):sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
   const dgmR=!tirol?null:await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
-  const natP=window.MMMSrc?window.MMMSrc.demGrid(x0,x1,y0,y1,W,H,{onTile:f=>say(`Gelände wird geladen (${src||"Landesdaten"}) … ${Math.round(f*100)} %`)}).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
+  const natP=root.MMMSrc?root.MMMSrc.demGrid(x0,x1,y0,y1,W,H,{onTile:f=>say(`Gelände wird geladen (${src||"Landesdaten"}) … ${Math.round(f*100)} %`)}).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
   const nat=await natP;
   const terr=await terrP;
   if(!dgmR&&!terr&&!nat)throw new Error("Für diesen Ort konnten keine Geländedaten geladen werden. Prüfe die Verbindung und versuche es nochmal.");
@@ -207,5 +205,95 @@ window.MMM_REGION_PROMISE=(async()=>{
   if(trees)meta.trees={n:nTrees};
   if(ctx)meta.context=ctx.grid;
   return {meta,dm,veg,trees,ctx:ctx?ctx.bytes:null,urls};
+}
+root.MMM_buildRegion=buildRegion;
+
+// ---- built areas: packed, gzipped and kept in the Cache API, so switching is quick ----
+const BUILD_V="b1", BUILT="mmm-built";
+const builtKey=(lon,lat)=>`https://linefinder.local/built/${BUILD_V}/${(+lon).toFixed(2)},${(+lat).toFixed(2)}`;
+async function gz(u8,pack){
+  if(typeof CompressionStream==="undefined")return null;
+  const st=new Blob([u8]).stream().pipeThrough(pack?new CompressionStream("gzip"):new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+async function storeBuilt(lon,lat,r){
+  try{
+    const parts=[["dm",r.dm],["veg",r.veg],["trees",r.trees],["ctx",r.ctx]].filter(p=>p[1]);
+    const head=new TextEncoder().encode(JSON.stringify({meta:r.meta,urls:r.urls,parts:parts.map(p=>[p[0],p[1] instanceof Uint16Array?"u16":"u8",p[1].byteLength])}));
+    const pad=o=>o+((8-o%8)%8);
+    let total=pad(4+head.length); parts.forEach(p=>total=pad(total+p[1].byteLength));
+    const out=new Uint8Array(total), dv=new DataView(out.buffer); dv.setUint32(0,head.length,true); out.set(head,4);
+    let o=pad(4+head.length);
+    for(const [,a] of parts){out.set(new Uint8Array(a.buffer,a.byteOffset,a.byteLength),o); o=pad(o+a.byteLength)}
+    const z=await gz(out,true); if(!z)return;
+    const c=await caches.open(BUILT); await c.put(builtKey(lon,lat),new Response(z));
+    const ks=await c.keys(); for(let i=0;i<ks.length-12;i++)await c.delete(ks[i]);
+  }catch(e){console.warn("Bereich speichern",e)}
+}
+async function loadBuilt(lon,lat){
+  try{
+    if(typeof DecompressionStream==="undefined")return null;
+    const c=await caches.open(BUILT), hit=await c.match(builtKey(lon,lat)); if(!hit)return null;
+    const u=await gz(new Uint8Array(await hit.arrayBuffer()),false), dv=new DataView(u.buffer,u.byteOffset,u.byteLength);
+    const pad=o=>o+((8-o%8)%8);
+    const hl=dv.getUint32(0,true), head=JSON.parse(new TextDecoder().decode(u.subarray(4,4+hl)));
+    let o=pad(4+hl); const r={meta:head.meta,urls:head.urls,dm:null,veg:null,trees:null,ctx:null};
+    for(const [name,type,len] of head.parts){const b=u.buffer.slice(u.byteOffset+o,u.byteOffset+o+len); r[name]=type==="u16"?new Uint16Array(b):new Uint8Array(b); o=pad(o+len)}
+    return r;
+  }catch(e){console.warn("Bereich lesen",e);return null}
+}
+const transfers=r=>[r.dm,r.veg,r.trees,r.ctx].filter(Boolean).map(a=>a.buffer);
+
+// ---- worker: build an area on request and keep it in the cache ----
+if(!isMain){
+  root.onmessage=async e=>{
+    const {id,lon,lat,name}=e.data;
+    try{
+      const r=await buildRegion(lon,lat,name,m=>root.postMessage({id,say:m}));
+      await storeBuilt(lon,lat,r);
+      root.postMessage({id,res:r},transfers(r));
+    }catch(err){root.postMessage({id,err:err.message||String(err)})}
+  };
+  return;
+}
+
+// ---- main thread ----
+let worker=null, wid=0; const waiting=new Map();
+function getWorker(){
+  if(worker!==null)return worker;
+  try{
+    const v=(document.querySelector('script[src*="js/region.js"]').src.match(/v=(\d+)/)||[])[1]||"0";
+    worker=new Worker("js/region-worker.js?v="+v);
+    worker.onmessage=e=>{const w=waiting.get(e.data.id); if(!w)return;
+      if(e.data.say!==undefined){w.say&&w.say(e.data.say);return}
+      waiting.delete(e.data.id); e.data.err?w.rej(new Error(e.data.err)):w.res(e.data.res)};
+    worker.onerror=e=>{console.warn("Worker",e.message);worker=false;waiting.forEach(w=>w.rej(new Error("worker")));waiting.clear()};
+  }catch(e){console.warn("Worker",e);worker=false}
+  return worker;
+}
+async function build(lon,lat,name,sayFn){
+  const w=getWorker();
+  if(w){try{return await new Promise((res,rej)=>{const id=++wid;waiting.set(id,{res,rej,say:sayFn});w.postMessage({id,lon,lat,name})})}
+    catch(e){if(e.message!=="worker")throw e}}
+  const r=await buildRegion(lon,lat,name,sayFn); await storeBuilt(lon,lat,r); return r;
+}
+const pending=new Map();
+function ensureBuilt(lon,lat,name,sayFn){
+  const k=(+lon).toFixed(2)+","+(+lat).toFixed(2);
+  if(!pending.has(k))pending.set(k,(async()=>{const r=await loadBuilt(lon,lat); if(r)return r; return build(lon,lat,name,sayFn)})().finally(()=>setTimeout(()=>pending.delete(k),0)));
+  return pending.get(k);
+}
+// background: download and build an area, so switching to it is quick
+window.MMM_prefetchRegion=async(lon,lat,onProgress)=>{
+  try{await ensureBuilt(lon,lat,"",m=>{const n=/(\d+) %/.exec(m||"");if(onProgress&&n)onProgress(+n[1])}); return {ok:true,err:""}}
+  catch(e){return {ok:false,err:e.message||String(e)}}
+};
+const qs=new URLSearchParams(location.search), at=qs.get("at");
+if(!at)return;
+const parts=at.split(",").map(Number), lon=parts[0], lat=parts[1];
+if(!isFinite(lon)||!isFinite(lat))return;
+const name=(qs.get("n")||"").slice(0,80);
+const sayMain=m=>{const l=document.getElementById("loading");if(l){l.hidden=false;l.textContent=m}};
+window.MMM_REGION_PROMISE=ensureBuilt(lon,lat,name,sayMain).then(r=>{r.meta.name=name;return r});
 })();
-})();
+

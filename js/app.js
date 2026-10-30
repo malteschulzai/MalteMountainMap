@@ -1,4 +1,4 @@
-// Malte Mountain Map – 3D terrain with basemap.at orthophoto, slope, contours, winter model, GPX.
+// Linefinder – 3D terrain with basemap.at orthophoto, slope, contours, winter model, GPX.
 (async function(){
 "use strict";
 let REG=null;
@@ -138,11 +138,46 @@ const PRESETS=[
   {n:1500,s:1900,bonus:-0.30,form:0.75,wind:18,sun:0.50,steepLo:34,steepHi:50,lo:0.35,hi:0.98,bury:0.9,crown:0.20,ctx:0.75},
   {n:1000,s:1400,bonus:-0.08,form:0.55,wind:22,sun:0.40,steepLo:40,steepHi:56,lo:0.28,hi:0.84,bury:0.5,crown:0.42,ctx:0.9},
   {n:650, s:950, bonus:0.28, form:0.40,wind:30,sun:0.30,steepLo:46,steepHi:62,lo:0.18,hi:0.62,bury:0.0,crown:0.65,ctx:1}];
+// terrain form and wind shelter are heavy: computed in a worker so the map stays usable
+const WINTER_WORKER=`
+const STEPS=${JSON.stringify(STEPS)}, WINDS=${JSON.stringify(WINDS)};
+let dm,W,H,N;
+${boxMean.toString()}
+onmessage=e=>{dm=e.data.dm;W=e.data.W;H=e.data.H;N=W*H;const {c10,dir,needForm}=e.data, E=k=>dm[k]*0.1; let form=null;
+  if(needForm){form=new Int8Array(N);let m=boxMean(7);const t=new Float32Array(N);
+    for(let k=0;k<N;k++)t[k]=(E(k)-m[k])/2.5; m=boxMean(35);
+    for(let k=0;k<N;k++){const v=-(t[k]+(E(k)-m[k])/14);form[k]=Math.max(-100,Math.min(100,v*100))}}
+  const shelter=new Int8Array(N); let [ux,uy]=WINDS[dir]; const l=Math.hypot(ux,uy); ux/=l; uy/=l;
+  const offs=STEPS.map(s=>[Math.round(ux*s),Math.round(uy*s),s]);
+  for(let y=0;y<H;y++){const cc=c10[y];
+    for(let x=0;x<W;x++){const k=y*W+x,e0=dm[k];let mx=-1e9;
+      for(let i=0;i<offs.length;i++){const sx=x+offs[i][0],sy=y+offs[i][1];
+        if(sx<0||sy<0||sx>=W||sy>=H)break;
+        const tn=(dm[sy*W+sx]-e0)/(offs[i][2]*cc); if(tn>mx)mx=tn}
+      shelter[k]=mx===-1e9?0:Math.max(-90,Math.min(90,Math.atan(mx)*180/Math.PI))}}
+  postMessage({form,shelter},[shelter.buffer].concat(form?[form.buffer]:[]));
+};`;
+let winterWorker=null;
+function winterPrep(dir,needForm){
+  return new Promise(res=>{
+    const sync=()=>{if(needForm)computeForm(); computeShelter(dir); res({form,shelter})};
+    try{
+      if(winterWorker===null)winterWorker=new Worker(URL.createObjectURL(new Blob([WINTER_WORKER],{type:"text/javascript"})));
+      if(!winterWorker)return sync();
+      const c10=new Float32Array(H); for(let y=0;y<H;y++)c10[y]=cellAt(y)*10;
+      winterWorker.onmessage=e=>res(e.data);
+      winterWorker.onerror=e=>{console.warn("Winter-Worker",e.message);winterWorker=false;sync()};
+      winterWorker.postMessage({dm,W,H,c10,dir,needForm});
+    }catch(e){console.warn(e);winterWorker=false;sync()}
+  });
+}
 async function computeWinter(quiet){
   const key=[state.snow,state.wind,state.lineN,state.lineS].join("|"); if(key===winterKey)return;
   if(!quiet)loadEl.hidden=false;
-  if(!form){await tick("Winter: Geländeformen …");computeForm()}
-  if(shelterDir!==state.wind){await tick("Winter: Windschatten …");computeShelter(state.wind);shelterDir=state.wind}
+  if(!form||shelterDir!==state.wind){
+    if(!quiet)await tick("Winter: Geländeformen und Windschatten …");
+    const r=await winterPrep(state.wind,!form); if(r.form)form=r.form; shelter=r.shelter; shelterDir=state.wind;
+  }
   if(!quiet)await tick("Winter: Schnee wird verteilt …");
   const P=PRESETS[state.snow], LN=state.lineN, LD=state.lineS-state.lineN;
   for(let k=0;k<N;k++){
@@ -1554,7 +1589,7 @@ async function autoLoad(){
   const key=lon+","+lat; prefetching=key; const t0=performance.now();
   let res={ok:false,err:"unbekannter Fehler"};
   if(prefetched.has(key)){const r=await prefetched.get(key); if(!r||!r.ok)prefetched.delete(key)}
-  try{res=await prefetch(lon,lat,n=>{if(prefetching===key)hereBtn.textContent=`Lade neuen Bereich … ${fmt(n/1e6,1)} MB`})}catch(e){res.err=e.message}
+  try{res=await prefetch(lon,lat,n=>{if(prefetching===key)hereBtn.textContent=`Lade neuen Bereich … ${n} %`})}catch(e){res.err=e.message}
   if(prefetching!==key)return;
   prefetching=null;
   if(!res.ok){hereBtn.textContent="Laden fehlgeschlagen: "+res.err+". Antippen zum Wiederholen";console.warn("Bereich",res.err,performance.now()-t0);return}
@@ -1564,6 +1599,12 @@ async function autoLoad(){
 }
 function navigateKeepView(lon,lat,tlon,tlat){
   saveState();
+  // a picture of the current view bridges the reload, so the switch looks seamless
+  try{renderer.render(scene,camera);const src=renderer.domElement, k=Math.min(1,1280/src.width), c=document.createElement("canvas");
+    c.width=Math.round(src.width*k); c.height=Math.round(src.height*k); const g=c.getContext("2d"), gr=g.createLinearGradient(0,0,0,c.height);
+    gr.addColorStop(0,"#5f8fbf");gr.addColorStop(0.34,"#9fc0db");gr.addColorStop(0.56,"#d3e0ea");gr.addColorStop(1,"#d3e0ea");
+    g.fillStyle=gr; g.fillRect(0,0,c.width,c.height); g.drawImage(src,0,0,c.width,c.height);
+    sessionStorage.setItem("mmm-snap",c.toDataURL("image/jpeg",0.8))}catch(e){}
   const s=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
   location.href=`./?at=${lon},${lat}&t=${tlon},${tlat}&cam=${s.radius.toFixed(3)},${s.theta.toFixed(4)},${s.phi.toFixed(4)}`;
 }
@@ -1600,10 +1641,17 @@ if(REG){
    const lbl=tir?"Laserscan Tirol":sn==="swisstopo"?"swissALTI3D":sn==="IGN"?"IGN RGE ALTI":"Gelände 30 m";
    $("subtitle").textContent=(META.name||"Alpen")+" · "+lbl}
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
-if(state.winter)await computeWinter();
 applyUniforms();
 loadEl.hidden=true;
 setTimeout(loadOsm,1500);
+(async()=>{
+  if(state.winter){await computeWinter(true);applyUniforms()}
+  const sn=$("snap"); if(!sn)return;
+  const t0=performance.now();
+  while(performance.now()-t0<6000&&!(shared.orthoReady.value>0.5)&&state.base==="ortho")await new Promise(r=>setTimeout(r,150));
+  await new Promise(r=>setTimeout(r,250));
+  sn.style.opacity=0; mapEl.classList.remove("snapping"); setTimeout(()=>sn.remove(),700);
+})();
 controls.addEventListener("change",()=>{needsRender=true;scheduleLOD();checkHere()});
 (function loop(){
   controls.update();
