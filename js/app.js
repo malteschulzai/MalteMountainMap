@@ -1659,7 +1659,7 @@ function offEstimate(){
 }
 function openOffSel(){
   setSheet(false); offSel.hidden=false;
-  const [x,y]=targetGrid(); lookAt(x,y,Math.max(30,Math.min(110,camera.position.distanceTo(controls.target))),"2d");
+  const [x,y]=targetGrid(); lookAt(x,y,Math.max(70,Math.min(160,camera.position.distanceTo(controls.target))),"2d");
   setTimeout(offEstimate,100);
 }
 $("offPick").onclick=openOffSel;
