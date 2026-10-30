@@ -45,8 +45,9 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
         const cx=(E-e0)/rx-0.5, cy=(n1-Nn)/ry-0.5, x=Math.min(tif.w-2,Math.max(0,Math.floor(cx))), y=Math.min(tif.h-2,Math.max(0,Math.floor(cy))), ax=cx-x, ay=cy-y, k=y*tif.w+x;
         const p=[T[k],T[k+1],T[k+tif.w],T[k+tif.w+1]];
         let h;
-        if(p.every(q=>q>-500&&q<5000))h=p[0]*(1-ax)*(1-ay)+p[1]*ax*(1-ay)+p[2]*(1-ax)*ay+p[3]*ax*ay;
-        else{const q=p[(ay>0.5?2:0)+(ax>0.5?1:0)]; h=q>-500&&q<5000?q:NaN}
+        // outside its coverage the Land Tirol service returns 0 or a huge negative number: both mean "no data"
+        if(p.every(q=>q>200&&q<5000))h=p[0]*(1-ax)*(1-ay)+p[1]*ax*(1-ay)+p[2]*(1-ax)*ay+p[3]*ax*ay;
+        else{const q=p[(ay>0.5?2:0)+(ax>0.5?1:0)]; h=q>200&&q<5000?q:NaN}
         if(!(h===h))bad++;
         out[j*nx+i]=h;
       }}

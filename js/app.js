@@ -596,8 +596,9 @@ async function fetchDemZone(mx0,mx1,my0,my1,zone){
       const a=lat[lj*L+li],b=lat[lj*L+li+1],c=lat[(lj+1)*L+li],d=lat[(lj+1)*L+li+1];
       const E=(a[0]*(1-fu)+b[0]*fu)*(1-fv)+(c[0]*(1-fu)+d[0]*fu)*fv, Nn=(a[1]*(1-fu)+b[1]*fu)*(1-fv)+(c[1]*(1-fu)+d[1]*fu)*fv;
       const cx=(E-e0)/rx-0.5, cy=(n1-Nn)/ry-0.5, x=Math.min(tif.w-2,Math.max(0,Math.floor(cx))), y=Math.min(tif.h-2,Math.max(0,Math.floor(cy))), ax=cx-x, ay=cy-y, k=y*tif.w+x, T=tif.data;
-      let h=T[k]*(1-ax)*(1-ay)+T[k+1]*ax*(1-ay)+T[k+tif.w]*(1-ax)*ay+T[k+tif.w+1]*ax*ay;
-      if(!(h>-500&&h<5000)){bad++;h=elevAt(gxOfMx(mx0+(mx1-mx0)*i/(PN-1)),gyOfMy(my1-(my1-my0)*j/(PN-1)))}
+      const c4=[T[k],T[k+1],T[k+tif.w],T[k+tif.w+1]];
+      let h=c4.every(q=>q>200&&q<5000)?c4[0]*(1-ax)*(1-ay)+c4[1]*ax*(1-ay)+c4[2]*(1-ax)*ay+c4[3]*ax*ay:NaN;
+      if(!(h>200&&h<5000)){bad++;h=elevAt(gxOfMx(mx0+(mx1-mx0)*i/(PN-1)),gyOfMy(my1-(my1-my0)*j/(PN-1)))}
       dem[j*PN+i]=h;
     }}
   return bad>PN*PN*0.4?null:dem;
