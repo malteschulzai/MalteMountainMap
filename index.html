@@ -104,6 +104,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .offitem b{display:block;font-size:14px}
 .aspects{display:grid;grid-template-columns:repeat(4,auto);gap:6px;justify-content:start}
 .aspects .chip{padding:7px 10px;min-width:42px}
+.stn{position:absolute;left:0;top:0;pointer-events:auto;border:0;font:700 11px/1 var(--font-body);color:#fff;background:#1f4ea3;border-radius:6px;padding:4px 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer;font-variant-numeric:tabular-nums}
+.stn::after{content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);border:4px solid transparent;border-top-color:#1f4ea3;border-bottom:0}
+.stn i{font-style:normal;color:#9fd8ff}
 .drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--panel) 70%,transparent);font-weight:600}
 
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;max-height:72%;background:var(--panel);border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.2);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -255,11 +258,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <div class="results card" id="searchResults" hidden></div>
       <div class="chipbar" role="group" aria-label="Schnellauswahl">
         <button class="qchip" id="qLayers">Ebenen <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="qchip" id="qAval" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M7 21l5-7 5 7M10 17l2-3 2 3"/></svg> Lawine</button>
         <button class="qchip" data-proxy="lyWinter">Winter</button>
         <button class="qchip" data-proxy="lySlope">Hangneigung</button>
         <button class="qchip" id="qSlopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg> Hangsuche</button>
         <button class="qchip" data-proxy="lyAspect">Exposition</button>
         <button class="qchip" data-proxy="lyPaths">Wege</button>
+        <button class="qchip" data-proxy="lyStations">Stationen</button>
         <button class="qchip" data-proxy="lyForest">Walddichte</button>
         <button class="qchip" data-proxy="lyAo">Schatten</button>
       </div>
@@ -283,6 +288,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
   <section class="panel" id="panel" hidden aria-labelledby="panelTitle">
     <div class="panel-head"><h2 id="panelTitle">Karte</h2><button class="xbtn" id="panelClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="panel-body"><div class="sheet-inner">
+      <div class="sec" data-tab="aval"><div id="avalInfo"></div></div>
       <div class="sec" data-tab="map">
         <div class="row" role="group" aria-label="Kartengrundlage" style="margin-bottom:10px">
           <button class="chip" id="bmOrtho" aria-pressed="true">Luftbild</button>
@@ -291,6 +297,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <div class="row" role="group" aria-label="Ebenen">
           <button class="chip" id="lyAo" aria-pressed="true">Umgebungsschatten</button>
           <button class="chip" id="lyForest" aria-pressed="false">Walddichte</button>
+          <button class="chip" id="lyDanger" aria-pressed="false">Lawinengefahr</button>
+          <button class="chip" id="lyStations" aria-pressed="false">Messstationen</button>
           <button class="chip" id="lySlope" aria-pressed="false">Hangneigung</button>
           <button class="chip" id="lyAspect" aria-pressed="false">Exposition</button>
           <button class="chip" id="lyTrees" aria-pressed="true">3D-Bäume</button>
@@ -314,6 +322,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <span><i class="dash" style="--c:#2f6fd8"></i>T4</span><span><i class="dash" style="--c:#1f3f9a"></i>T5</span><span><i class="dash" style="--c:#111"></i>T6</span>
         <span><i style="background:#b88a4a;height:5px;vertical-align:1px"></i>Forstweg</span>
         <span><i style="background:#2a7de1"></i>blau</span><span><i style="background:#d7301f"></i>rot</span><span><i style="background:#111"></i>schwarz</span><span><i class="dash" style="--c:#7b2d8e"></i>Skitour</span>
+      </div>
+      <div class="legend" id="legendDanger" hidden>
+        <span><i style="background:#ccff66"></i>1 gering</span><span><i style="background:#ffff00"></i>2 mäßig</span><span><i style="background:#ff9900"></i>3 erheblich</span><span><i style="background:#ff0000"></i>4 groß</span><span><i style="background:#a00000"></i>5 sehr groß</span>
       </div>
       <div class="legend" id="legendForest" hidden>
         <span><i style="background:#4dbf4d"></i>licht, unter 35 %</span><span><i style="background:#f2b326"></i>mittel, 35–65 %</span><span><i style="background:#cc2e26"></i>dicht, über 65 %</span>
@@ -412,7 +423,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p style="margin:0 0 4px;font-weight:600">Linefinder</p>
         <p class="hint" id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</p>
         <button class="btn" id="goNordkette" style="margin:8px 0" hidden>Zurück zur Nordkette</button>
-        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Walddichte und Waldtyp: Copernicus Land Monitoring Service, High Resolution Layer Forest (EEA). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Lawinenlagebericht und Messstationen: Lawinenwarndienste Tirol, Südtirol und Trentino (avalanche.report), Regionen: EAWS. Walddichte und Waldtyp: Copernicus Land Monitoring Service, High Resolution Layer Forest (EEA). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
       </div>
     </div></div>
   </section>
@@ -434,12 +445,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=42"></script>
-<script src="js/config.js?v=42"></script>
-<script src="js/geo.js?v=42"></script>
-<script src="js/borders.js?v=42"></script>
-<script src="js/sources.js?v=42"></script>
-<script src="js/region.js?v=42"></script>
-<script src="js/app.js?v=42"></script>
+<script src="data/nordkette-meta.js?v=43"></script>
+<script src="js/config.js?v=43"></script>
+<script src="js/geo.js?v=43"></script>
+<script src="js/borders.js?v=43"></script>
+<script src="js/sources.js?v=43"></script>
+<script src="js/region.js?v=43"></script>
+<script src="js/app.js?v=43"></script>
 </body>
 </html>

@@ -202,9 +202,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -320,7 +320,7 @@ const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  aoMap:{value:blank0()}, aoAmt:{value:0}, forestMap:{value:blank0()}, hasForest:{value:0}, showForest:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
+  dangerMap:{value:blank0()}, showDanger:{value:0}, aoMap:{value:blank0()}, aoAmt:{value:0}, forestMap:{value:blank0()}, hasForest:{value:0}, showForest:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
   globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, sgMap:{value:blank0()}, showSG:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
@@ -343,6 +343,7 @@ uniform sampler2D sgMap;
 uniform sampler2D maskMap, fineSlope, aoMap, searchMap;
 uniform float aoAmt, showSearch;
 uniform sampler2D forestMap; uniform float hasForest, showForest;
+uniform sampler2D dangerMap; uniform float showDanger;
 uniform float exag, rockLo, rockHi;
 varying vec3 vNrm;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
@@ -463,6 +464,8 @@ void main(){
   }
   if(showForest>0.5&&hasForest>0.5){ float t=clamp(texture2D(forestMap,dUv).r*2.55,0.0,1.0);
     if(t>0.08){ vec3 fc=t<0.35?vec3(.30,.75,.30):t<0.65?vec3(.95,.70,.15):vec3(.80,.18,.15); col=mix(col,fc,0.5*smoothstep(0.08,0.15,t)); } }
+  if(showDanger>0.5){ float lv=floor(texture2D(dangerMap,dUv).r*255.0/50.0+0.5);
+    if(lv>0.5){ vec3 dc=lv<1.5?vec3(.80,1.0,.40):lv<2.5?vec3(1.0,1.0,0.0):lv<3.5?vec3(1.0,.60,0.0):lv<4.5?vec3(1.0,0.0,0.0):vec3(.63,0.0,0.0); col=mix(col,dc,0.42); } }
   // ambient occlusion: gullies and valley floors see less sky
   if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.8+0.2*ao,aoAmt); }
   if(showSearch>0.5){ float m=texture2D(searchMap,dUv).r; if(m>0.35) col=mix(col,vec3(0.0,0.78,1.0),0.55*smoothstep(0.35,0.7,m)); }
@@ -1212,7 +1215,7 @@ function placeLabels(){
 }
 function updateLabels(){
   if(lastMarker&&!pinEl.hidden)project(lastMarker[0],lastMarker[1],pinEl,0);
-  placeLabels();
+  placeLabels(); if(typeof placeStations==="function")placeStations();
   const show=state.route&&route&&route.ends;
   $("rStart").hidden=!show; $("rEnd").hidden=!show;
   if(show){project(route.ends[0].gx,route.ends[0].gy,$("rStart"),0.05);project(route.ends[1].gx,route.ends[1].gy,$("rEnd"),0.05)}
@@ -1506,6 +1509,7 @@ $("sgDate").addEventListener("change",()=>{if(state.snowgrid)loadSnowgrid()});
 // ---------- Controls ----------
 function applyUniforms(){
   shared.mode.value=state.base==="ortho"?0:1; shared.aoAmt.value=state.ao&&aoReady?1:0; shared.showForest.value=state.forest?1:0; $("legendForest").hidden=!state.forest;
+  shared.showDanger.value=state.danger?1:0; $("legendDanger").hidden=!state.danger; $("qAval").setAttribute("aria-pressed",state.danger); needsRender=true;
   shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
   $("legendAspect").hidden=!state.aspect;
   shared.showSG.value=state.snowgrid&&sgPts?1:0; $("sgSec").hidden=!state.snowgrid;
@@ -1517,7 +1521,7 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
+[["lyDanger","danger"],["lyStations","stations"],["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
@@ -1525,6 +1529,8 @@ $("bmRelief").onclick=()=>setBase("relief");
     if(key==="trees")updateLOD();
     if(key==="pistes"||key==="paths"){buildOverlay();$("legendPaths").hidden=!state.paths}
     if(key==="snowgrid"&&state.snowgrid&&!sgPts)await loadSnowgrid();
+    if(key==="danger"&&state.danger)await buildDanger().catch(()=>{statusEl.textContent="Lagebericht gerade nicht erreichbar"});
+    if(key==="stations"&&state.stations)await loadStations();
     applyUniforms();
   };
 });
@@ -1817,6 +1823,141 @@ $("hsRun").onclick=slopeSearch;
 $("hsClear").onclick=()=>{shared.showSearch.value=0;needsRender=true;$("hsResult").innerHTML=""};
 hsUI();
 
+// ---------- Avalanche bulletin (Euregio Tirol, Südtirol, Trentino) and weather stations ----------
+const BULL_URL="https://static.avalanche.report/bulletins/latest/EUREGIO_de_CAAMLv6.json";
+const STN_URL="https://static.avalanche.report/weather_stations/stations.geojson";
+const DLV={low:1,moderate:2,considerable:3,high:4,very_high:5};
+const DLN=["keine Angabe","1 gering","2 mäßig","3 erheblich","4 groß","5 sehr groß"];
+const DLC=["#c8c8c8","#ccff66","#ffff00","#ff9900","#ff0000","#a00000"];
+const PROB={new_snow:"Neuschnee",wind_slab:"Triebschnee",persistent_weak_layers:"Altschnee",wet_snow:"Nassschnee",gliding_snow:"Gleitschnee",cornices:"Wechten",favourable_situation:"Günstige Situation",no_distinct_avalanche_problem:"Kein ausgeprägtes Problem"};
+const ASP={N:0,NE:1,E:2,SE:3,S:4,SW:5,W:6,NW:7}, ASPN=["N","NO","O","SO","S","SW","W","NW"];
+const LWD={by:null,regions:null,pub:null,valid:null,err:null};
+const ringIn=(r,x,y)=>{let ins=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)ins=!ins}return ins};
+let lwdP=null;
+function loadBulletin(){
+  if(lwdP)return lwdP;
+  lwdP=(async()=>{
+    const today=new Date().toISOString().slice(0,10);
+    const [b,...fcs]=await Promise.all([fetch(BULL_URL).then(r=>r.json()),...["AT-07","IT-32-BZ","IT-32-TN"].map(c=>fetch(`https://regions.avalanches.org/micro-regions/${c}_micro-regions.geojson.json`).then(r=>r.json()).catch(()=>null))]);
+    const regions=[];
+    fcs.forEach(fc=>fc&&fc.features.forEach(f=>{const p=f.properties;if(p.end_date&&p.end_date<=today)return;if(p.start_date&&p.start_date>today)return;
+      const polys=f.geometry.type==="Polygon"?[f.geometry.coordinates]:f.geometry.coordinates;let a=1e9,c=1e9,d=-1e9,e=-1e9;
+      polys.forEach(pl=>pl[0].forEach(([x,y])=>{a=Math.min(a,x);c=Math.min(c,y);d=Math.max(d,x);e=Math.max(e,y)}));regions.push({id:p.id,polys,bb:[a,c,d,e]})}));
+    const by=new Map(); b.bulletins.forEach(bu=>bu.regions.forEach(r=>by.set(r.regionID,{bu,name:r.name})));
+    LWD.by=by; LWD.regions=regions; LWD.pub=b.bulletins[0]&&b.bulletins[0].publicationTime; LWD.valid=b.bulletins[0]&&b.bulletins[0].validTime;
+    return LWD;
+  })();
+  lwdP.catch(e=>{LWD.err=e.message;lwdP=null});
+  return lwdP;
+}
+function regionAt(lon,lat){
+  if(!LWD.regions)return null;
+  for(const g of LWD.regions){const b=g.bb;if(lon<b[0]||lon>b[2]||lat<b[1]||lat>b[3])continue;
+    for(const pl of g.polys){if(ringIn(pl[0],lon,lat)&&!pl.slice(1).some(h=>ringIn(h,lon,lat)))return g.id}}
+  return null;
+}
+const boundM=v=>v===undefined?null:v==="treeline"?1900:+v;
+function dangerAt(bu,elev,period){
+  let m=0;
+  for(const d of bu.dangerRatings||[]){if(period&&d.validTimePeriod&&d.validTimePeriod!=="all_day"&&d.validTimePeriod!==period)continue;
+    const lo=boundM(d.elevation&&d.elevation.lowerBound), hi=boundM(d.elevation&&d.elevation.upperBound);
+    if(lo!==null&&elev<lo)continue; if(hi!==null&&elev>=hi)continue; m=Math.max(m,DLV[d.mainValue]||0)}
+  return m;
+}
+// danger level per 20 m cell for the map layer (highest of the day, elevation bands from the bulletin)
+const DW=W>>2, DH=H>>2, dangerData=new Uint8Array(DW*DH), dangerTex=new THREE.DataTexture(dangerData,DW,DH,THREE.LuminanceFormat);
+dangerTex.magFilter=dangerTex.minFilter=THREE.NearestFilter; dangerTex.generateMipmaps=false; dangerTex.needsUpdate=true; shared.dangerMap.value=dangerTex;
+let dangerBuilt=false;
+async function buildDanger(){
+  await loadBulletin(); if(dangerBuilt)return; dangerBuilt=true;
+  const B=16, bw=Math.ceil(W/B), bh=Math.ceil(H/B), reg=new Array(bw*bh);
+  for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){const gx=i*B+B/2, gy=j*B+B/2;reg[j*bw+i]=regionAt(xToLon(gx),yToLat(gy))}
+  for(let y=0;y<DH;y++)for(let x=0;x<DW;x++){const gx=x*4+2, gy=y*4+2, r=reg[Math.floor(gy/B)*bw+Math.floor(gx/B)], e=LWD.by&&r&&LWD.by.get(r);
+    dangerData[y*DW+x]=e?dangerAt(e.bu,elevAt(gx,gy))*50:0}
+  dangerTex.needsUpdate=true; needsRender=true;
+}
+function centerBulletin(){
+  const [gx,gy]=targetGrid(), r=regionAt(xToLon(gx),yToLat(gy)), e=r&&LWD.by&&LWD.by.get(r);
+  return e?{...e,id:r,elev:elevAt(gx,gy)}:null;
+}
+const strip=h=>String(h||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").trim();
+function renderBulletin(){
+  const box=$("avalInfo");
+  if(LWD.err){box.innerHTML=`<p class="warn">Lagebericht gerade nicht erreichbar.</p>`;return}
+  if(!LWD.by){box.innerHTML='<p class="hint">Lagebericht wird geladen …</p>';return}
+  const c=centerBulletin();
+  if(!c){box.innerHTML='<p class="hint">Für diesen Ort gibt es hier keinen Lagebericht. Bisher eingebunden: Tirol, Südtirol und Trentino (Euregio).</p>';return}
+  const bu=c.bu, start=new Date(bu.validTime.startTime), end=new Date(bu.validTime.endTime), old=Date.now()>end.getTime();
+  const f=d=>d.toLocaleString("de-AT",{weekday:"short",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
+  const bands=[];
+  for(const d of bu.dangerRatings||[]){const lo=d.elevation&&d.elevation.lowerBound, hi=d.elevation&&d.elevation.upperBound, lv=DLV[d.mainValue]||0;
+    const where=lo?`über ${lo==="treeline"?"Waldgrenze":lo+" m"}`:hi?`unter ${hi==="treeline"?"Waldgrenze":hi+" m"}`:"alle Höhen";
+    const when=d.validTimePeriod==="earlier"?"vormittags":d.validTimePeriod==="later"?"nachmittags":"";
+    bands.push(`<span class="pill" style="background:${DLC[lv]};color:#1b2420">${DLN[lv]}</span> <span class="sub">${where}${when?", "+when:""}</span>`)}
+  const probs=(bu.avalancheProblems||[]).map(p=>{const lo=p.elevation&&p.elevation.lowerBound, hi=p.elevation&&p.elevation.upperBound;
+    const el=lo?`über ${lo==="treeline"?"Waldgrenze":lo+" m"}`:hi?`unter ${hi==="treeline"?"Waldgrenze":hi+" m"}`:"alle Höhen";
+    const asp=(p.aspects||[]).map(a=>ASPN[ASP[a]]).join(" ");
+    return `<div class="offitem"><div><b>${PROB[p.problemType]||p.problemType}</b>${el}${asp?" · "+asp:""}${p.validTimePeriod==="later"?" · nachmittags":p.validTimePeriod==="earlier"?" · vormittags":""}</div></div>`}).join("");
+  const hl=strip(bu.avalancheActivity&&bu.avalancheActivity.highlights), cm=strip(bu.avalancheActivity&&bu.avalancheActivity.comment), sp=strip(bu.snowpackStructure&&bu.snowpackStructure.comment);
+  box.innerHTML=`<p style="margin:0 0 4px;font-weight:600">${escapeHtml(c.name)}</p>
+    <p class="${old?"warn":"hint"}" style="margin-bottom:8px">${old?"Kein aktueller Lagebericht. Letzter gültig ":"Gültig "}${f(start)} bis ${f(end)}</p>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">${bands.join("<br>")}</div>
+    ${probs?`<h2 style="margin-top:10px">Lawinenprobleme</h2>${probs}`:""}
+    ${hl?`<p style="margin:10px 0 4px;font-weight:600">${escapeHtml(hl)}</p>`:""}
+    ${cm?`<p class="hint" style="white-space:pre-line">${escapeHtml(cm)}</p>`:""}
+    ${sp?`<p class="hint" style="white-space:pre-line;margin-top:6px">${escapeHtml(sp)}</p>`:""}
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="avalToPlan">Für Tourenplanung übernehmen</button><a class="btn" href="https://lawinen.report" target="_blank" rel="noopener">Ganzer Bericht</a></div>
+    <p class="hint" style="margin-top:8px">Quelle: Lawinenwarndienste Tirol, Südtirol und Trentino (avalanche.report).</p>`;
+  $("avalToPlan").onclick=()=>{
+    let dl=0; (bu.dangerRatings||[]).forEach(d=>dl=Math.max(dl,DLV[d.mainValue]||0));
+    const core=[0,0,0,0,0,0,0,0]; let lo=1e9;
+    (bu.avalancheProblems||[]).forEach(p=>{if(p.problemType==="favourable_situation")return;(p.aspects||[]).forEach(a=>{if(ASP[a]!==undefined)core[ASP[a]]=1});
+      const b=boundM(p.elevation&&p.elevation.lowerBound); lo=Math.min(lo,b===null?0:b)});
+    $("planDl").value=String(Math.min(4,Math.max(1,dl))); plan.core=core; $("planElev").value=lo<1e9?Math.round(lo/100)*100:0; planUI(); openPanel("plan");
+    planStatus.textContent="Gefahrenstufe und Kernzone aus dem Lagebericht übernommen.";
+  };
+}
+async function openAval(){openPanel("aval"); renderBulletin(); try{await loadBulletin()}catch(e){} renderBulletin()}
+$("qAval").onclick=async()=>{
+  state.danger=!state.danger; $("lyDanger").setAttribute("aria-pressed",state.danger);
+  if(state.danger){try{await buildDanger()}catch(e){statusEl.textContent="Lagebericht gerade nicht erreichbar"}openAval()} else openPanel(null);
+  applyUniforms();
+};
+
+// weather stations: snow depth, new snow, temperature
+let stations=[]; const stnLayer=$("labels");
+async function loadStations(){
+  if(stations.length)return;
+  let fc; try{fc=await (await fetch(STN_URL)).json()}catch(e){statusEl.textContent="Messstationen gerade nicht erreichbar";return}
+  for(const f of fc.features){const [lon,lat,alt]=f.geometry.coordinates, gx=lonToX(lon), gy=latToY(lat);
+    if(gx<0||gy<0||gx>=W||gy>=H)continue; const p=f.properties;
+    const el=document.createElement("button"); el.className="stn";
+    const hs=p.HS!==undefined&&p.HS!==null?Math.max(0,Math.round(p.HS)):null, d24=p.HSD24!==undefined?Math.round(p.HSD24):null;
+    el.innerHTML=hs!==null?`${hs} cm${d24>=1?` <i>+${d24}</i>`:""}`:p.LT!==undefined?`${fmt(p.LT,1)}°`:"•";
+    el.onclick=ev=>{ev.stopPropagation();showStation(p,alt)};
+    stnLayer.appendChild(el); stations.push({gx,gy,el,p,alt});
+  }
+  needsRender=true;
+}
+function showStation(p,alt){
+  const v=(k,u,d=0)=>p[k]!==undefined&&p[k]!==null?`${fmt(p[k],d)}${u}`:"–";
+  const t=p.date?new Date(p.date).toLocaleString("de-AT",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"}):"";
+  $("pointInfo").innerHTML=`<div class="point"><span class="big">${p.HS!==undefined?fmt(Math.max(0,Math.round(p.HS)))+" cm":"–"}</span><span class="sub">Schneehöhe</span></div>
+    <div class="point"><span class="sub"><b style="color:var(--ink)">${escapeHtml(p.name||"Station")}</b> · ${fmt(Math.round(alt))} m · ${t}</span></div>
+    <div class="point"><span class="sub">Neuschnee 24 h ${v("HSD24"," cm")} · 48 h ${v("HSD48"," cm")} · 72 h ${v("HSD72"," cm")}</span></div>
+    <div class="point"><span class="sub">Luft ${v("LT","°",1)} (${v("LT_MIN","°",1)} bis ${v("LT_MAX","°",1)}) · Wind ${v("WG"," km/h")}${p.WG_BOE!==undefined?", Böen "+v("WG_BOE"," km/h"):""}${p.WR!==undefined?" aus "+ASPN[Math.round(p.WR/45)%8]:""}</span></div>
+    <div class="point"><span class="sub">${escapeHtml(p.operator||"")}</span></div>`;
+  openPanel(null); $("pointCard").hidden=false;
+}
+function placeStations(){
+  const on=state.stations, far=camera.position.distanceTo(controls.target)*4+60;
+  for(const s of stations){
+    if(!on){s.el.style.display="none";continue}
+    const wp=gridToWorld(s.gx,s.gy,0.05); if(wp.distanceTo(camera.position)>far||occluded(wp)){s.el.style.display="none";continue}
+    project(s.gx,s.gy,s.el,0.05);
+  }
+}
+
 // ---------- App install ----------
 let installEvt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
@@ -1825,7 +1966,7 @@ if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch
 
 // ---------- Collapsible panel ----------
 // ---------- Panels, tab bar, quick chips, round buttons ----------
-const panel=$("panel"), TAB_TITLES={map:"Karte",plan:"Tour planen",slopes:"Hangsuche",offline:"Offline-Karten",info:"Info"};
+const panel=$("panel"), TAB_TITLES={aval:"Lawinenlage",map:"Karte",plan:"Tour planen",slopes:"Hangsuche",offline:"Offline-Karten",info:"Info"};
 let curTab=null;
 function openPanel(tab){
   curTab=tab||null; panel.hidden=!curTab;
@@ -1931,7 +2072,7 @@ function navigateKeepView(lon,lat,tlon,tlat){
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
 function syncUI(){
-  const chips={lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
+  const chips={lyDanger:"danger",lyStations:"stations",lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
   $("snowLvl").value=state.snow; $("wind").value=state.wind; $("newSnow").value=state.newSnow; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
@@ -1966,6 +2107,8 @@ applyUniforms();
 loadEl.hidden=true;
 setTimeout(loadOsm,1500);
 computeAO();
+if(state.danger)buildDanger().catch(()=>{});
+if(state.stations)loadStations();
 (async()=>{
   if(state.winter){await computeWinter(true);applyUniforms()}
   const sn=$("snap"); if(!sn)return;
