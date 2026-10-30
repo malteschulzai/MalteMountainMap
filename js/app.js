@@ -349,6 +349,7 @@ void main(){
     vec3 n=normalize(vec3(vNrm.x,vNrm.y/max(exag,0.01),vNrm.z));
     geoL=clamp(dot(n,normalize(vec3(-0.5,0.72,-0.48))),0.0,1.0);
     steepF=smoothstep(46.0,64.0,slope)*step(900.0,vElev);
+    if(ortho) steepF*=1.0-smoothstep(0.56,0.76,olum);   // bright in the photo = ice or firn face, not rock
     float g1=hash(floor(vec2(vWorld.x+vWorld.z,vWorld.y)*60.0)), g2=hash(floor(vec2(vWorld.x-vWorld.z,vWorld.y)*150.0));
     float l=dot(col,vec3(.299,.587,.114));
     vec3 rockBase=ortho?mix(vec3(l)*vec3(1.03,1.0,0.95),col,0.3):vec3(.56,.53,.50);
@@ -376,6 +377,8 @@ void main(){
     else under=mix(under, vec3(.38,.36,.35)*light, rock);
     float vis=smoothstep(0.12,0.88,clamp(snow+(sg-shade)*0.8,0.0,1.0));
     if(isPatch>0.5) vis*=1.0-smoothstep(rockLo,rockHi,slope);
+    // glaciers and ice faces that are white even in the summer photo stay white in winter
+    if(ortho) vis=max(vis, smoothstep(0.58,0.78,olum)*step(1800.0,vElev));
     col=mix(under,w,vis);
   }
   if(showSG>0.5){
