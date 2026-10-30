@@ -41,7 +41,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .btn:focus-visible,.chip:focus-visible,.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-.map{position:absolute;inset:0;background:linear-gradient(#5f8fbf,#9fc0db 38%,#d3e0ea 64%,#e2eaef);overflow:hidden;touch-action:none}
+.map{position:absolute;inset:0;background:linear-gradient(#5f8fbf,#9fc0db 34%,#d3e0ea 56%,#d3e0ea);overflow:hidden;touch-action:none}
 .status{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(var(--bar) + 12px);font-size:11px;color:#1b2420;background:rgba(255,255,255,.78);border-radius:6px;padding:4px 7px;pointer-events:none;font-variant-numeric:tabular-nums}
 .rdot{position:absolute;left:0;top:0;width:14px;height:14px;border-radius:50%;border:3px solid #1d4ed8;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transform:translate(-50%,-50%);pointer-events:none}
 .rdot.end{background:#1d4ed8;border-color:#fff}
@@ -200,6 +200,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <button class="chip" id="lyWinter" aria-pressed="true">Winter</button>
           <button class="chip" id="lyPistes" aria-pressed="true">Pisten &amp; Lifte</button>
           <button class="chip" id="lyPaths" aria-pressed="false">Wege</button>
+          <button class="chip" id="lySnowgrid" aria-pressed="false">SNOWGRID</button>
         </div>
       </div>
       <div class="legend" id="legend" hidden>
@@ -218,6 +219,17 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <div class="legend" id="legendAspect" hidden>
         <span><i style="background:#2952cc"></i>N</span><span><i style="background:#2ea8db"></i>NO</span><span><i style="background:#4db34d"></i>O</span><span><i style="background:#edcc33"></i>SO</span>
         <span><i style="background:#e04229"></i>S</span><span><i style="background:#db61a8"></i>SW</span><span><i style="background:#8c54c7"></i>W</span><span><i style="background:#38388c"></i>NW</span>
+      </div>
+
+      <div class="sec" id="sgSec" hidden>
+        <h2>SNOWGRID Schneehöhe</h2>
+        <div class="wctl"><label for="sgDate">Tag</label><input type="date" id="sgDate" class="search" style="padding:7px 8px"></div>
+        <div class="legend">
+          <span><i style="background:#cceaff"></i>1–30 cm</span><span><i style="background:#3380db"></i>30–80</span><span><i style="background:#2145b3"></i>80–150</span>
+          <span><i style="background:#542999"></i>150–250</span><span><i style="background:#8c1a73"></i>über 250 cm</span>
+        </div>
+        <p class="hint" id="sgStatus" aria-live="polite"></p>
+        <p class="hint">Modellierte Schneehöhe von GeoSphere Austria auf einem 1-km-Raster, täglich aktualisiert. Ein Wert gilt für die ganze Zelle, Grate und Mulden unterscheidet SNOWGRID nicht. Daten: GeoSphere Austria, CC BY 4.0.</p>
       </div>
 
       <div class="sec" id="winterSec">
@@ -271,9 +283,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=16"></script>
-<script src="js/geo.js?v=16"></script>
-<script src="js/region.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
+<script src="data/nordkette-meta.js?v=17"></script>
+<script src="js/geo.js?v=17"></script>
+<script src="js/region.js?v=17"></script>
+<script src="js/app.js?v=17"></script>
 </body>
 </html>

@@ -161,11 +161,12 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
 const SAVE_KEYS=["base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
-try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
+// restored only when the page was opened by switching to another area, a fresh start uses the defaults
+if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
 let needsRender=true;
 
 // ---------- three.js ----------
@@ -175,7 +176,7 @@ renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 renderer.setClearColor(0x000000,0);
 mapEl.insertBefore(renderer.domElement,mapEl.firstChild);
 const MAXTEX=renderer.capabilities.maxTextureSize;
-const scene=new THREE.Scene();
+const scene=new THREE.Scene(); window.MMM_debug={scene};
 const camera=new THREE.PerspectiveCamera(45,1,0.1,800);
 // ---------- Terrain height in world units (1 m detail tiles first, then 3 m grid) ----------
 function heightGrid(gx,gy){const p=patchHeight(gx,gy);return p!==null?p:elevAt(gx,gy)}
@@ -196,7 +197,7 @@ function rayTerrain(o,d){
 // Map gestures like Google Earth / FATMAP: grab-pan, pinch toward the fingers, twist to rotate,
 // two-finger vertical drag to tilt, wheel zooms toward the cursor, right-drag rotates, glide after a flick.
 function createControls(cam,dom){
-  const C={target:new THREE.Vector3(),maxPolarAngle:1.4,minDistance:0.25,maxDistance:200,_l:[],
+  const C={target:new THREE.Vector3(),maxPolarAngle:1.4,minDistance:0.25,maxDistance:170,_l:[],
     addEventListener(t,f){if(t==="change")this._l.push(f)},update(){return step()}};
   const emit=()=>C._l.forEach(f=>f());
   const ptr=new Map(), rc=new THREE.Raycaster(), nd=new THREE.Vector2(), UP=new THREE.Vector3(0,1,0), pl=new THREE.Plane();
@@ -272,12 +273,12 @@ const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
+  globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, sgMap:{value:blank0()}, showSG:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
   lineN:{value:650}, lineS:{value:950}, steepLo:{value:36}, steepHi:{value:50}, ctxAmt:{value:1},
   exag:{value:1}, rockLo:{value:52}, rockHi:{value:64},
-  fogNear:{value:30}, fogFar:{value:260}
+  fogNear:{value:25}, fogFar:{value:420}
 };
 const VERT=`
 attribute vec2 uvLocal;
@@ -289,7 +290,8 @@ void main(){
 }`;
 const FRAG=`
 uniform sampler2D globalMap, localMap, dataMap, vegMap, globalShade, localShade, aspectMap;
-uniform float showAspect, treesOn, isPatch, useFineSlope;
+uniform float showAspect, treesOn, isPatch, useFineSlope, showSG;
+uniform sampler2D sgMap;
 uniform sampler2D maskMap, fineSlope;
 uniform float exag, rockLo, rockHi;
 varying vec3 vNrm;
@@ -369,6 +371,18 @@ void main(){
     float vis=smoothstep(0.12,0.88,clamp(snow+(sg-shade)*0.8,0.0,1.0));
     if(isPatch>0.5) vis*=1.0-smoothstep(rockLo,rockHi,slope);
     col=mix(under,w,vis);
+  }
+  if(showSG>0.5){
+    // SNOWGRID snow depth (GeoSphere Austria, 1 km), stored as cm/2; alpha 0 where there is no value
+    vec4 sgv=texture2D(sgMap,dUv); float cm=sgv.r*510.0;
+    if(sgv.a>0.5 && cm>=1.0){
+      vec3 c=mix(vec3(.80,.92,1.0),vec3(.52,.76,.95),smoothstep(1.0,30.0,cm));
+      c=mix(c,vec3(.20,.50,.86),smoothstep(30.0,80.0,cm));
+      c=mix(c,vec3(.13,.27,.70),smoothstep(80.0,150.0,cm));
+      c=mix(c,vec3(.33,.16,.60),smoothstep(150.0,250.0,cm));
+      c=mix(c,vec3(.55,.10,.45),smoothstep(250.0,400.0,cm));
+      col=mix(col,c*(0.75+0.35*light),0.62);
+    }
   }
   if(showAspect>0.5 && slope>=8.0){
     float a=floor(texture2D(aspectMap,dUv).r*255.0/32.0);
@@ -662,7 +676,7 @@ function updatePatches(){
 // ---------- Surrounding terrain to the horizon ----------
 const CG=META.context;
 const ctxGroup=new THREE.Group(); ctxGroup.scale.y=state.exag; scene.add(ctxGroup);
-const ctxShared={orthoMap:{value:blank0()},ctxOrtho:{value:0},exag:{value:state.exag},
+const ctxShared={orthoMap:{value:blank0()},ctxOrtho:{value:0},exag:{value:state.exag},fadeEdge:{value:0.35},
   hole:{value:new THREE.Vector4((-W/2-0.5+1)*sc,(-H/2-0.5+1)*sc,(W/2-0.5-1)*sc,(H/2-0.5-1)*sc)}};
 const ctxMat=new THREE.ShaderMaterial({
   uniforms:Object.assign({},ctxShared,{mode:shared.mode,winter:shared.winter,lineN:shared.lineN,lineS:shared.lineS,steepLo:shared.steepLo,steepHi:shared.steepHi,ctxAmt:shared.ctxAmt,camPos:shared.camPos,haze:shared.haze,fogNear:shared.fogNear,fogFar:shared.fogFar}),
@@ -671,7 +685,7 @@ const ctxMat=new THREE.ShaderMaterial({
     void main(){ vUv=uv; vElev=position.y*100.0; vN=normalize(vec3(normal.x,normal.y/exag,normal.z));
       vec4 wp=modelMatrix*vec4(position,1.0); vWorld=wp.xyz; gl_Position=projectionMatrix*viewMatrix*wp; }`,
   fragmentShader:`
-    uniform sampler2D orthoMap; uniform float ctxOrtho, mode, winter, lineN, lineS, steepLo, steepHi, ctxAmt, fogNear, fogFar;
+    uniform sampler2D orthoMap; uniform float ctxOrtho, mode, winter, lineN, lineS, steepLo, steepHi, ctxAmt, fogNear, fogFar, fadeEdge;
     uniform vec3 camPos, haze; uniform vec4 hole;
     varying vec2 vUv; varying vec3 vN; varying float vElev; varying vec3 vWorld;
     vec3 hyps(float e){
@@ -695,9 +709,39 @@ const ctxMat=new THREE.ShaderMaterial({
         col=mix(col,mix(vec3(.79,.855,.95),vec3(1.0),smoothstep(0.15,0.75,sh)),s);
       }
       col=mix(col,haze,smoothstep(fogNear,fogFar,length(vWorld-camPos))*(winter>0.5?0.6:0.72));
+      float e=min(min(vUv.x,1.0-vUv.x),min(vUv.y,1.0-vUv.y));
+      col=mix(col,haze,(1.0-smoothstep(0.0,0.12,e))*fadeEdge);   // edges dissolve into the haze
       gl_FragColor=vec4(col,1.0);
     }`
 });
+// far backdrop (~600 m, ±130 km) so a zoomed-out view never shows the edge of the map
+const toWX=mx=>((mx-G.x0)/G.cell-0.5-W/2)*sc, toWZ=my=>((G.y1-my)/G.cell-0.5-H/2)*sc;
+async function buildFar(){
+  try{
+    const z=8, O=20037508.342789244, tileM=2*O/2**z, cx=G.x0+W*G.cell/2, cy=G.y1-H*G.cell/2, r=130000/Math.cos(47.2*Math.PI/180);
+    const tx0=Math.floor((cx-r+O)/tileM), tx1=Math.floor((cx+r+O)/tileM), ty0=Math.floor((O-(cy+r))/tileM), ty1=Math.floor((O-(cy-r))/tileM);
+    const cv=document.createElement("canvas"); cv.width=(tx1-tx0+1)*256; cv.height=(ty1-ty0+1)*256;
+    const c2=cv.getContext("2d",{willReadFrequently:true}); let ok=0, need=0;
+    const jobs=[];
+    for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++){need++;
+      jobs.push(fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${tx}/${ty}.png`,{mode:"cors"}).then(r=>r.ok?r.blob():null).then(b=>b&&createImageBitmap(b)).then(bm=>{if(bm){c2.drawImage(bm,(tx-tx0)*256,(ty-ty0)*256);ok++}}).catch(()=>{}))}
+    await Promise.all(jobs); if(ok<need)return;
+    const px=c2.getImageData(0,0,cv.width,cv.height).data, cell=tileM/256, ox=tx0*tileM-O, oy=O-ty0*tileM;
+    const st=small?3:2, nx=Math.floor(cv.width/st), ny=Math.floor(cv.height/st), pos=new Float32Array(nx*ny*3), uv=new Float32Array(nx*ny*2);
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const x=i*st,y=j*st,p=(y*cv.width+x)*4,h=px[p]*256+px[p+1]+px[p+2]/256-32768,v=j*nx+i;
+      pos[v*3]=toWX(ox+(x+0.5)*cell); pos[v*3+1]=(Math.max(0,h)-40)/U; pos[v*3+2]=toWZ(oy-(y+0.5)*cell);
+      uv[v*2]=i/(nx-1); uv[v*2+1]=1-j/(ny-1)}
+    const idx=new Uint32Array((nx-1)*(ny-1)*6); let n=0;
+    for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx[n++]=a;idx[n++]=c;idx[n++]=b;idx[n++]=b;idx[n++]=c;idx[n++]=d}
+    const geo=new THREE.BufferGeometry(); geo.setAttribute("position",new THREE.BufferAttribute(pos,3)); geo.setAttribute("uv",new THREE.BufferAttribute(uv,2));
+    geo.setIndex(new THREE.BufferAttribute(idx,1)); geo.computeVertexNormals(); geo.computeBoundingSphere();
+    const hole=CG?new THREE.Vector4(toWX(CG.x0)+0.5,toWZ(CG.y1)+0.5,toWX(CG.x0+CG.W*CG.cell)-0.5,toWZ(CG.y1-CG.H*CG.cell)-0.5):ctxShared.hole.value.clone();
+    const u=Object.assign({},ctxMat.uniforms,{hole:{value:hole},ctxOrtho:{value:0},fadeEdge:{value:1}});
+    const mesh=new THREE.Mesh(geo,new THREE.ShaderMaterial({uniforms:u,vertexShader:ctxMat.vertexShader,fragmentShader:ctxMat.fragmentShader}));
+    mesh.renderOrder=-1; ctxGroup.add(mesh); needsRender=true;
+  }catch(e){console.warn("Fernsicht",e)}
+}
+setTimeout(buildFar,6000);
 const ctxPromise=REG?Promise.resolve(REG.ctx):CG?loadB64Gz("data/context-dem.txt?v="+APPV).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
 ctxPromise.then(b=>{
   if(!b)return;
@@ -897,19 +941,34 @@ const PISTE_COL={novice:"#2a7de1",easy:"#2a7de1",intermediate:"#d7301f",advanced
 const PISTE_NAME={novice:"blaue Piste",easy:"blaue Piste",intermediate:"rote Piste",advanced:"schwarze Piste",expert:"schwarze Piste",freeride:"Skiroute",extreme:"Skiroute"};
 const LIFT_NAME={cable_car:"Seilbahn",gondola:"Gondelbahn",chair_lift:"Sessellift",drag_lift:"Schlepplift","t-bar":"Schlepplift","j-bar":"Schlepplift",platter:"Tellerlift",rope_tow:"Seillift",magic_carpet:"Förderband",mixed_lift:"Kombibahn",funicular:"Standseilbahn"};
 var osmWays=[];
+async function overpass(q,key,oldKeys){
+  let cache=null;
+  try{cache=await caches.open("mmm-osm"); const hit=await cache.match(key); if(hit)return await hit.json()}catch(e){}
+  for(let round=0;round<3;round++){
+    for(const host of OVERPASS){
+      try{const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),45000);
+        const r=await fetch(host+"?data="+encodeURIComponent(q),{signal:ctl.signal}); const tx=await r.text(); clearTimeout(to);
+        if(r.ok&&tx.trim().startsWith("{")){if(cache)try{await cache.put(key,new Response(tx,{headers:{"Content-Type":"application/json"}}))}catch(e){} return JSON.parse(tx)}
+      }catch(e){}
+    }
+    await new Promise(r=>setTimeout(r,2000*(round+1)));
+  }
+  // servers busy: fall back to an older saved answer if there is one
+  if(cache)for(const k of oldKeys||[]){try{const hit=await cache.match(k); if(hit)return await hit.json()}catch(e){}}
+  return null;
+}
 async function loadOsm(){
   const [w,s]=MMMGeo.mercToLonLat(G.x0,G.y1-H*G.cell), [e,n]=MMMGeo.mercToLonLat(G.x0+W*G.cell,G.y1);
   const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
-  const q=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb});way["highway"="track"](${bb}););out geom;`;
-  const key="https://mmm.local/osm/"+bb+"/v3";
-  let json=null, cache=null;
-  try{cache=await caches.open("mmm-osm"); const hit=await cache.match(key); if(hit)json=await hit.json()}catch(e){}
-  for(let round=0;round<2&&!json;round++)for(const host of OVERPASS){
-    try{const r=await fetch(host+"?data="+encodeURIComponent(q)); const tx=await r.text();
-      if(r.ok&&tx.trim().startsWith("{")){json=JSON.parse(tx); if(cache)try{await cache.put(key,new Response(tx,{headers:{"Content-Type":"application/json"}}))}catch(e){} break}}catch(e){}
-    if(!json)await new Promise(r=>setTimeout(r,1500));
-  }
-  if(!json){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar";return}
+  const q1=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
+  const q2=`[out:json][timeout:90];way["highway"="track"](${bb});out geom;`;
+  const base="https://mmm.local/osm/"+bb;
+  const [j1,j2]=await Promise.all([overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]),overpass(q2,base+"/tracks4",[])]);
+  if(!j1&&!j2){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar, neuer Versuch in 30 s";setTimeout(loadOsm,30000);return}
+  if(!j2)setTimeout(loadOsm,60000);
+  const seen=new Set(), json={elements:[]};
+  [j1,j2].forEach(j=>j&&j.elements.forEach(el=>{const k=el.type+el.id; if(!seen.has(k)){seen.add(k);json.elements.push(el)}}));
+  statusEl.textContent=shared.orthoReady.value?"Luftbild: basemap.at":statusEl.textContent;
   const labels=[], ways=[];
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
   for(const el of json.elements){
@@ -945,13 +1004,31 @@ async function loadOsm(){
 }
 let overlayMeshes=[], overlayTimer=null;
 function scheduleOverlay(){clearTimeout(overlayTimer);overlayTimer=setTimeout(buildOverlay,500)}
+// highest corner of the rendered triangle under a point, so draped lines never sink into the coarser mesh
+function meshTop(gx,gy){
+  const pd=patchCorners(gx,gy); if(pd!==null)return pd;
+  const ci=Math.min(CX-1,Math.max(0,Math.floor(gx/CW))), cj=Math.min(CY-1,Math.max(0,Math.floor(gy/CH)));
+  const ax=ci*CW, ay=cj*CH, bx=Math.min(W-1,(ci+1)*CW), by=Math.min(H-1,(cj+1)*CH);
+  const x0=Math.min(bx,ax+Math.floor((gx-ax)/STEP)*STEP), y0=Math.min(by,ay+Math.floor((gy-ay)/STEP)*STEP), x1=Math.min(bx,x0+STEP), y1=Math.min(by,y0+STEP);
+  const e=(x,y)=>E(Math.max(0,Math.min(H-1,y))*W+Math.max(0,Math.min(W-1,x)));
+  return Math.max(e(x0,y0),e(x1,y0),e(x0,y1),e(x1,y1));
+}
+function patchCorners(gx,gy){
+  if(!patches||!patches.size)return null;
+  const mx=G.x0+(gx+0.5)*G.cell, my=G.y1-(gy+0.5)*G.cell;
+  const p=patches.get(Math.floor((mx+ORIGIN)/TILEM)+"/"+Math.floor((ORIGIN-my)/TILEM));
+  if(!p||!p.dem||!p.mesh)return null;
+  const fx=(mx-p.mx0)/(p.mx1-p.mx0)*(PN-1), fy=(p.my1-my)/(p.my1-p.my0)*(PN-1);
+  const x0=Math.max(0,Math.min(PN-1,Math.floor(fx/PSTEP)*PSTEP)), y0=Math.max(0,Math.min(PN-1,Math.floor(fy/PSTEP)*PSTEP)), x1=Math.min(PN-1,x0+PSTEP), y1=Math.min(PN-1,y0+PSTEP), D=p.dem;
+  return Math.max(D[y0*PN+x0],D[y0*PN+x1],D[y1*PN+x0],D[y1*PN+x1]);
+}
 function buildOverlay(){
   overlayMeshes.forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose()}); overlayMeshes=[];
   if(!osmWays.length){needsRender=true;return}
   const groups={shadow:{p:[],c:[]},track:{p:[],c:[]},casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
   const step=Math.max(0.5,6/CELL), lift=0.025;
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
-  const P=(gx,gy,up)=>[(gx-W/2)*sc,heightGrid(gx,gy)/U*state.exag+up,(gy-H/2)*sc];
+  const P=(gx,gy,up)=>[(gx-W/2)*sc,meshTop(gx,gy)/U*state.exag+up,(gy-H/2)*sc];
   for(const w of osmWays){
     if(w.kind==="path"&&!state.paths)continue; if(w.kind!=="path"&&!state.pistes)continue;
     col.set(w.color); const g=w.track?groups.track:w.dashed?groups.dashed:groups.solid, cas=!w.dashed&&!w.track, shadow=w.track;
@@ -961,16 +1038,19 @@ function buildOverlay(){
       let prev=P(ax,ay,up);
       for(let s=1;s<=n;s++){const f=s/n, cur=P(ax+(bx-ax)*f,ay+(by-ay)*f,up);
         g.p.push(...prev,...cur); g.c.push(col.r,col.g,col.b,col.r,col.g,col.b);
-        if(cas){groups.casing.p.push(...prev,...cur);groups.casing.c.push(1,1,1,1,1,1)}
-        if(shadow){groups.shadow.p.push(...prev,...cur);groups.shadow.c.push(1,1,1,1,1,1)}
+        // outlines sit a hair lower so the coloured line always wins the depth test
+        const lo=[prev[0],prev[1]-0.012,prev[2],cur[0],cur[1]-0.012,cur[2]];
+        if(cas){groups.casing.p.push(...lo);groups.casing.c.push(1,1,1,1,1,1)}
+        if(shadow){groups.shadow.p.push(...lo);groups.shadow.c.push(1,1,1,1,1,1)}
         prev=cur}
     }
   }
   const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
-  [["shadow",6.5,false,1,0.85],["track",4,false,2,1],["casing",5.5,false,3,1],["solid",3,false,4,1],["dashed",3,true,5,1]].forEach(([k,lw,dashed,order,op])=>{
+  [["track",4,false,2,1],["solid",3,false,4,1],["dashed",3,true,5,1]].forEach(([k,lw,dashed,order,op])=>{
     const g=groups[k]; if(!g.p.length)return;
     const geo=new THREE.LineSegmentsGeometry(); geo.setPositions(g.p); geo.setColors(g.c);
     const mat=new THREE.LineMaterial({vertexColors:true,linewidth:lw,resolution:res,dashed,dashSize:0.06,gapSize:0.04,dashScale:1,depthTest:true,transparent:op<1,opacity:op});
+
     if(dashed)mat.defines.USE_DASH="";
     const m=new THREE.LineSegments2(geo,mat); if(dashed)m.computeLineDistances(); m.renderOrder=order; scene.add(m); overlayMeshes.push(m);
   });
@@ -1119,6 +1199,8 @@ function showPoint(gx,gy){
   $("pointInfo").innerHTML=`<div class="point"><span class="big">${fmt(Math.round(e))} m</span><span class="big">${fmt(Math.round(s))}°</span>${slopePill(s)}</div>
   ${state.winter&&winterKey?`<div class="point"><span class="sub">Winter-Modell: ${snowText(data[k*4+2]/255)}</span></div>`:""}
   <div class="point"><span class="sub">Exposition ${ASPECTS[aspect[k]]}</span><span class="sub">${fmt(yToLat(gy),5)} N, ${fmt(xToLon(gx),5)} O</span></div>`;
+  const sgv=snowgridAt(gx,gy);
+  if(sgv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">SNOWGRID: ${fmt(Math.round(sgv))} cm (Mittel der 1-km-Zelle)</span>`;$("pointInfo").appendChild(d)}
   const w=osmWays.length?nearestWay(gx,gy):null;
   if(w){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub" style="color:var(--ink)"><b>${escapeHtml(w.label)}</b></span>`;$("pointInfo").appendChild(d)}
 }
@@ -1243,11 +1325,74 @@ mapEl.addEventListener("dragover",e=>e.preventDefault());
 mapEl.addEventListener("dragleave",()=>{if(--dragDepth<=0){dragDepth=0;$("drop").hidden=true}});
 mapEl.addEventListener("drop",e=>{e.preventDefault();dragDepth=0;$("drop").hidden=true;const f=e.dataTransfer.files[0];if(f)loadFile(f)});
 
+// ---------- SNOWGRID: modelled snow depth from GeoSphere Austria (1 km, daily) ----------
+const SG_API="https://dataset.api.hub.geosphere.at/v1/grid/historical/snowgrid_cl-v2-1d-1km";
+let sgMeta=null, sgParam=null, sgDate=null, sgPts=null, sgUnit="m", sgLoading=false;
+const sgStatus=m=>{$("sgStatus").textContent=m};
+async function sgInit(){
+  if(sgMeta)return true;
+  try{
+    const r=await fetch(SG_API+"/metadata"); if(!r.ok)throw new Error("HTTP "+r.status);
+    sgMeta=await r.json();
+    const ps=sgMeta.parameters||[];
+    const p=ps.find(p=>/snow.?depth|schneeh|^hs$|^sd$|^snow_depth/i.test((p.name||"")+" "+(p.long_name||"")+" "+(p.desc||"")))||ps[0];
+    sgParam=p.name; sgUnit=p.unit||"m";
+    const end=(sgMeta.end_time||sgMeta.end||"").slice(0,10)||new Date(Date.now()-864e5).toISOString().slice(0,10);
+    $("sgDate").max=end; $("sgDate").min=(sgMeta.start_time||"1961-01-01").slice(0,10); if(!$("sgDate").value)$("sgDate").value=end;
+    return true;
+  }catch(e){console.warn("SNOWGRID",e);sgStatus("SNOWGRID gerade nicht erreichbar ("+e.message+").");sgMeta=null;return false}
+}
+async function loadSnowgrid(){
+  if(sgLoading)return; sgLoading=true; sgStatus("SNOWGRID wird geladen …");
+  try{
+    if(!await sgInit())return;
+    const d=$("sgDate").value;
+    const [w,s]=MMMGeo.mercToLonLat(G.x0,G.y1-H*G.cell), [e,n]=MMMGeo.mercToLonLat(G.x0+W*G.cell,G.y1), m=0.02;
+    const bb=`${(s-m).toFixed(3)},${(w-m).toFixed(3)},${(n+m).toFixed(3)},${(e+m).toFixed(3)}`;
+    const url=`${SG_API}?parameters=${encodeURIComponent(sgParam)}&start=${d}T00:00&end=${d}T00:00&bbox=${bb}&output_format=geojson`;
+    let json=null, cache=null;
+    try{cache=await caches.open("mmm-snowgrid"); const hit=await cache.match(url); if(hit)json=await hit.json()}catch(e){}
+    if(!json){const r=await fetch(url); if(!r.ok)throw new Error("HTTP "+r.status); const tx=await r.text(); json=JSON.parse(tx);
+      if(cache)try{await cache.put(url,new Response(tx,{headers:{"Content-Type":"application/json"}}))}catch(e){}}
+    const f2m=v=>/^m$/i.test(sgUnit)?v*100:/mm/i.test(sgUnit)?v/10:v;  // to cm
+    sgPts=[];
+    for(const f of json.features||[]){
+      const pr=(f.properties&&f.properties.parameters&&(f.properties.parameters[sgParam]||Object.values(f.properties.parameters)[0]))||null;
+      const v=pr&&Array.isArray(pr.data)?pr.data[0]:null; if(v===null||v===undefined||!isFinite(v))continue;
+      if(pr.unit)sgUnit=pr.unit;
+      const [lo,la]=f.geometry.coordinates; sgPts.push({gx:lonToX(lo),gy:latToY(la),cm:Math.max(0,f2m(+v))});
+    }
+    if(!sgPts.length){sgStatus("Für diesen Bereich und Tag liefert SNOWGRID keine Werte.");return}
+    // spread the 1 km points over the area (inverse distance weighting within ~1.6 km)
+    const TW=Math.ceil(W/8), TH=Math.ceil(H/8), buf=new Uint8Array(TW*TH*4), R2=(1600/CELL)**2, bin=new Map(), bs=1600/CELL;
+    sgPts.forEach(p=>{const k=Math.floor(p.gx/bs)+","+Math.floor(p.gy/bs);(bin.get(k)||bin.set(k,[]).get(k)).push(p)});
+    for(let j=0;j<TH;j++)for(let i=0;i<TW;i++){
+      const gx=(i+0.5)*8, gy=(j+0.5)*8, bx=Math.floor(gx/bs), by=Math.floor(gy/bs); let sw=0,sv=0;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const a=bin.get((bx+dx)+","+(by+dy)); if(!a)continue;
+        for(const p of a){const d2=(p.gx-gx)**2+(p.gy-gy)**2; if(d2>R2)continue; const wt=1/(d2+1); sw+=wt; sv+=wt*p.cm}}
+      const k=(j*TW+i)*4; if(sw>0){buf[k]=Math.min(255,Math.round(sv/sw/2));buf[k+3]=255}
+    }
+    const tex=new THREE.DataTexture(buf,TW,TH,THREE.RGBAFormat); tex.magFilter=tex.minFilter=THREE.LinearFilter; tex.generateMipmaps=false; tex.needsUpdate=true;
+    const old=shared.sgMap.value; shared.sgMap.value=tex; if(old&&old.image&&old.image.width>1)old.dispose();
+    const vals=sgPts.map(p=>p.cm).sort((a,b)=>a-b);
+    sgStatus(`Stand ${new Date(d).toLocaleDateString("de-AT")}: ${fmt(vals[0])} bis ${fmt(vals[vals.length-1])} cm im Bereich, Mittel je 1 km² Rasterzelle.`);
+    needsRender=true; if(lastMarker)showPoint(lastMarker[0],lastMarker[1]);
+  }catch(e){console.warn("SNOWGRID",e);sgStatus("SNOWGRID konnte nicht geladen werden ("+e.message+").")}
+  finally{sgLoading=false}
+}
+function snowgridAt(gx,gy){
+  if(!sgPts||!state.snowgrid)return null; let best=null,bd=1e18;
+  for(const p of sgPts){const d=(p.gx-gx)**2+(p.gy-gy)**2; if(d<bd){bd=d;best=p}}
+  return best&&bd<(900/CELL)**2?best.cm:null;
+}
+$("sgDate").addEventListener("change",()=>{if(state.snowgrid)loadSnowgrid()});
+
 // ---------- Controls ----------
 function applyUniforms(){
   shared.mode.value=state.base==="ortho"?0:1;
   shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
   $("legendAspect").hidden=!state.aspect;
+  shared.showSG.value=state.snowgrid&&sgPts?1:0; $("sgSec").hidden=!state.snowgrid;
   shared.winter.value=state.winter&&winterKey?1:0;
   $("legend").hidden=!state.slope; $("winterSec").hidden=!state.winter;
   if(lastMarker)showPoint(lastMarker[0],lastMarker[1]);
@@ -1256,13 +1401,14 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"]].forEach(([id,key])=>{
+[["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
     if(key==="route")buildRouteLine();
     if(key==="trees")updateLOD();
     if(key==="pistes"||key==="paths"){buildOverlay();$("legendPaths").hidden=!state.paths}
+    if(key==="snowgrid"&&state.snowgrid&&!sgPts)await loadSnowgrid();
     applyUniforms();
   };
 });
