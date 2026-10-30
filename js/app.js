@@ -355,8 +355,8 @@ float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
 // natural snow: blue-grey in shadow, soft off-white in the sun (not pure white)
 vec3 snowCol(float s){
-  vec3 sh=vec3(.60,.67,.77), mid=vec3(.82,.86,.91), lit=vec3(.955,.962,.97);
-  return s<0.45 ? mix(sh,mid,smoothstep(0.02,0.45,s)) : mix(mid,lit,smoothstep(0.45,0.85,s));
+  vec3 sh=vec3(.70,.77,.87), mid=vec3(.90,.925,.955), lit=vec3(.985,.988,.992);
+  return s<0.32 ? mix(sh,mid,smoothstep(0.0,0.32,s)) : mix(mid,lit,smoothstep(0.32,0.72,s));
 }
 void main(){
   vec2 dUv=vec2(vUv.x,1.0-vUv.y);
