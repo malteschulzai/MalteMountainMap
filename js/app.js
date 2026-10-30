@@ -202,9 +202,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
+const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -1227,6 +1227,7 @@ function updateLabels(){
   $("rStart").hidden=!show; $("rEnd").hidden=!show;
   if(show){project(route.ends[0].gx,route.ends[0].gy,$("rStart"),0.05);project(route.ends[1].gx,route.ends[1].gy,$("rEnd"),0.05)}
   if(typeof placePlanMarks==="function")placePlanMarks();
+  if(typeof placePtMarkers==="function")placePtMarkers();
   if(typeof me!=="undefined"&&me&&!$("me").hidden){const g=[lonToX(me.lon),latToY(me.lat)];project(g[0],g[1],$("me"),0.05)}
 }
 
@@ -1317,6 +1318,7 @@ function showPoint(gx,gy){
   if(sgv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">SNOWGRID: ${fmt(Math.round(sgv))} cm (Mittel der 1-km-Zelle)</span>`;$("pointInfo").appendChild(d)}
   const w=osmWays.length?nearestWay(gx,gy):null;
   if(w){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub" style="color:var(--ink)"><b>${escapeHtml(w.label)}</b></span>`;$("pointInfo").appendChild(d)}
+  if(typeof pointSaveUI==="function")pointSaveUI(gx,gy);
 }
 
 // ---------- Routes ----------
@@ -1684,7 +1686,7 @@ function hhmm(h){const m=Math.round(h*60/5)*5;return `${Math.floor(m/60)}:${Stri
 function planInfo(){
   const box=$("pbInfo");
   if(!plan.pts.length){box.textContent="Tippe den Startpunkt in die Karte.";return}
-  if(plan.pts.length===1){box.textContent="Tippe das Ziel oder einen Zwischenpunkt.";return}
+  if(plan.pts.length===1){box.textContent="Tippe den nächsten Punkt. Du kannst beliebig viele setzen.";return}
   if(planBusy){box.textContent="Route wird berechnet …";return}
   if(!route||!route.stats){box.textContent="Keine Route gefunden.";return}
   const st=route.stats, km=st.dist/1000;
@@ -1725,6 +1727,15 @@ function endPlan(){
   if(route){fitRoute("3d"); statusEl.textContent="Route fertig. Profil und GPX unter Planen."}
 }
 function planTap(gx,gy){
+  // a tap close to the drawn route inserts a stop on that leg, anywhere else the route is extended
+  if(plan.pts.length>=2){
+    const tol=Math.max(20,camera.position.distanceTo(controls.target)*U*0.03)/CELL; let best=null;
+    plan.segs.forEach((sg,i)=>{if(!sg)return;for(let k=1;k<sg.length;k++){const a=sg[k-1],b=sg[k],dx=b[0]-a[0],dy=b[1]-a[1],l=dx*dx+dy*dy;
+      const t=l?Math.max(0,Math.min(1,((gx-a[0])*dx+(gy-a[1])*dy)/l)):0,d=Math.hypot(gx-a[0]-dx*t,gy-a[1]-dy*t);if(!best||d<best.d)best={d,i}}});
+    if(best&&best.d<tol){plan.pts.splice(best.i+1,0,[gx,gy]);
+      if(plan.key!==planKey())recomputePlan(); else {plan.segs.splice(best.i,1,null,null);computeSeg(best.i);computeSeg(best.i+1)}
+      planInfo(); needsRender=true; return}
+  }
   plan.pts.push([gx,gy]);
   if(plan.pts.length>1){plan.segs.push(null); if(plan.key!==planKey())recomputePlan(); else computeSeg(plan.pts.length-2)}
   planInfo(); needsRender=true;
@@ -1742,6 +1753,7 @@ $("planRun").onclick=()=>{if(plan.pts.length>1){recomputePlan();openPanel(null)}
 $("pbUndo").onclick=()=>{plan.pts.pop();plan.segs.length=Math.max(0,plan.pts.length-1);applyPlanRoute()};
 $("pbClear").onclick=()=>{plan.pts=[];plan.segs=[];route=null;buildRouteLine();planInfo();needsRender=true};
 $("pbDone").onclick=endPlan;
+$("pbHere").onclick=()=>{if(me)planTap(lonToX(me.lon),latToY(me.lat)); else {startLocate(); $("pbInfo").textContent="Standort wird gesucht. Tippe gleich nochmal auf Standort."}};
 $("pbSettings").onclick=()=>openPanel("plan");
 document.querySelectorAll("[data-pmode]").forEach(b=>b.onclick=()=>setPlanMode(b.dataset.pmode));
 // markers for start, stops and goal
@@ -1751,6 +1763,8 @@ function placePlanMarks(){
   planMarks.forEach((el,i)=>{
     if(i>=plan.pts.length||(!plan.active&&!route)){el.style.display="none";return}
     const last=i===plan.pts.length-1&&i>0; el.className="pmark"+(last?" goal":i?" via":"");
+    el.style.pointerEvents=plan.active?"auto":"none"; el.dataset.i=i;
+    if(!el.onclick)el.onclick=ev=>{ev.stopPropagation(); if(!plan.active)return; const k=+el.dataset.i; plan.pts.splice(k,1); recomputePlan(); planInfo(); needsRender=true};
     el.textContent=i===0?"Start":last?"Ziel":String(i);
     project(plan.pts[i][0],plan.pts[i][1],el,0.05);
   });
@@ -2113,6 +2127,81 @@ async function openOverview(){
 }
 $("ovClose").onclick=()=>{$("overview").hidden=true};
 $("qOverview").onclick=openOverview;
+
+// ---------- Saved points ----------
+function loadPts(){try{return JSON.parse(localStorage.getItem("lf-points")||"[]")}catch(e){return []}}
+function savePts(a){try{localStorage.setItem("lf-points",JSON.stringify(a))}catch(e){}}
+const ptEls=new Map();
+function syncPtMarkers(){
+  const pts=loadPts(), ids=new Set(pts.map(p=>p.id));
+  for(const [id,el] of ptEls)if(!ids.has(id)){el.remove();ptEls.delete(id)}
+  for(const p of pts){if(ptEls.has(p.id))continue;
+    const el=document.createElement("button"); el.className="spt"; el.innerHTML=`<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.2 6.8.8-5 4.6 1.3 6.7L12 17l-6 3.3 1.3-6.7-5-4.6 6.8-.8z" fill="#f2b326" stroke="#7a4b00" stroke-width="1.2"/></svg><span>${escapeHtml(p.name)}</span>`;
+    el.onclick=ev=>{ev.stopPropagation();showSavedPoint(p.id)};
+    $("labels").appendChild(el); ptEls.set(p.id,el)}
+  renderPtList(); needsRender=true;
+}
+function placePtMarkers(){
+  const far=camera.position.distanceTo(controls.target)*4+60;
+  for(const p of loadPtsCache()){const el=ptEls.get(p.id); if(!el)continue;
+    const gx=lonToX(p.lon), gy=latToY(p.lat);
+    if(gx<0||gy<0||gx>=W||gy>=H){el.style.display="none";continue}
+    const wp=gridToWorld(gx,gy,0.05); if(wp.distanceTo(camera.position)>far){el.style.display="none";continue}
+    project(gx,gy,el,0.05)}
+}
+let ptCache=null; const loadPtsCache=()=>ptCache||(ptCache=loadPts());
+function addPoint(name,lon,lat,ele){
+  const a=loadPts(); a.push({id:Date.now(),name:name||"Punkt "+(a.length+1),lon,lat,ele:Math.round(ele),date:new Date().toISOString().slice(0,10)});
+  savePts(a); ptCache=null; syncPtMarkers();
+}
+function deletePoint(id){savePts(loadPts().filter(p=>p.id!==id)); ptCache=null; syncPtMarkers()}
+function showSavedPoint(id){
+  const p=loadPts().find(x=>x.id===id); if(!p)return;
+  $("pointInfo").innerHTML=`<div class="point"><span class="big">${escapeHtml(p.name)}</span></div>
+    <div class="point"><span class="sub">${fmt(p.ele)} m · ${fmt(p.lat,5)} N, ${fmt(p.lon,5)} O · gespeichert ${p.date}</span></div>
+    <div class="row" style="margin-top:8px">${plan.active?'<button class="btn primary" id="ptToRoute">Zur Route hinzufügen</button>':""}<button class="btn" id="ptDel">Löschen</button></div>`;
+  $("ptDel").onclick=()=>{deletePoint(id);$("pointCard").hidden=true};
+  if(plan.active)$("ptToRoute").onclick=()=>{planTap(lonToX(p.lon),latToY(p.lat));$("pointCard").hidden=true};
+  openPanel(null); $("pointCard").hidden=false;
+}
+function pointSaveUI(gx,gy){
+  const d=document.createElement("div"); d.className="row"; d.style.marginTop="8px";
+  d.innerHTML=`<input class="search" id="ptName" placeholder="Name für diesen Punkt" style="flex:1;min-width:0;padding:8px 10px"><button class="btn primary" id="ptSave">Punkt speichern</button>`;
+  $("pointInfo").appendChild(d);
+  $("ptSave").onclick=()=>{addPoint($("ptName").value.trim(),xToLon(gx),yToLat(gy),heightGrid(gx,gy));$("pointCard").hidden=true;pinEl.hidden=true;lastMarker=null;statusEl.textContent="Punkt gespeichert"};
+}
+function renderPtList(){
+  const box=$("ptList"); if(!box)return; const pts=loadPts(); box.innerHTML="";
+  if(!pts.length){box.innerHTML='<p class="hint">Noch keine Punkte. Tippe in die Karte und dann auf „Punkt speichern“.</p>';return}
+  pts.forEach(p=>{const d=document.createElement("div");d.className="offitem";
+    d.innerHTML=`<div><b>${escapeHtml(p.name)}</b>${fmt(p.ele)} m · ${p.date}</div><div class="row"><button class="btn" data-go>Zeigen</button><button class="btn" data-del>Löschen</button></div>`;
+    d.querySelector("[data-go]").onclick=()=>{const gx=lonToX(p.lon),gy=latToY(p.lat);
+      if(gx>=1&&gy>=1&&gx<W-1&&gy<H-1){openPanel(null);lookAt(gx,gy,Math.max(8,camera.position.distanceTo(controls.target)),is2D()?"2d":"3d");showSavedPoint(p.id)} else goTo(p.lon,p.lat,p.name)};
+    d.querySelector("[data-del]").onclick=()=>deletePoint(p.id);
+    box.appendChild(d)});
+}
+$("ptGpx").onclick=()=>{
+  const pts=loadPts(); if(!pts.length)return;
+  const esc=s=>String(s).replace(/[<&>]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;"}[c]));
+  const x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Linefinder" xmlns="http://www.topografix.com/GPX/1/1">\n`+pts.map(p=>`<wpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"><ele>${p.ele}</ele><name>${esc(p.name)}</name></wpt>`).join("\n")+`\n</gpx>\n`;
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([x],{type:"application/gpx+xml"})); a.download="Linefinder-Punkte.gpx"; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
+};
+syncPtMarkers();
+
+// ---------- Season: one tap between winter (snow model, pistes, ski tours) and summer (photo, paths, hikes) ----------
+function setSeason(season){
+  state.season=season; const win=season==="winter";
+  const want=(id,key,val)=>{if(!!state[key]!==val)$(id).click()};
+  want("lyWinter","winter",win); want("lyPaths","paths",!win); want("lyPistes","pistes",win);
+  if(state.base!=="ortho")setBase("ortho");
+  if(!win&&state.danger)$("qAval").click();
+  setPlanMode(win?"ski":"hike"); seasonChip(); saveState();
+}
+function seasonChip(){const win=state.season!=="summer";
+  $("qSeason").innerHTML=win?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7M9 4l3 2 3-2M9 20l3-2 3 2"/></svg> Winter':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg> Sommer';
+  $("qSeason").setAttribute("aria-label",win?"Wintermodus, tippen für Sommer":"Sommermodus, tippen für Winter")}
+$("qSeason").onclick=()=>setSeason(state.season==="summer"?"winter":"summer");
+seasonChip(); if(state.season==="summer")setPlanMode("hike");
 
 // ---------- App install ----------
 let installEvt=null;

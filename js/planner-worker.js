@@ -122,7 +122,7 @@ function astarSki(p,I){
   // turn cost by change of heading: kick turns (more than ~110°) are expensive
   const kick=1.6*(p.turn||1), TC=[];
   for(let a=0;a<16;a++){TC.push([]);for(let b=0;b<16;b++){let d=Math.abs(ANG[a]-ANG[b]);if(d>Math.PI)d=2*Math.PI-d;const deg=d*57.2958;
-    TC[a].push(deg<=30?0:deg<=110?0.004*(deg-30):kick)}}
+    TC[a].push(deg<=30?0:deg<75?0.006*(deg-30):kick)}}
   const sx=Math.min(nx-1,Math.round(p.s[0]/2)), sy=Math.min(ny-1,Math.round(p.s[1]/2)), gx=Math.min(nx-1,Math.round(p.g[0]/2)), gy=Math.min(ny-1,Math.round(p.g[1]/2));
   const cell=(i,j)=>Math.min(h-1,2*j)*w+Math.min(w-1,2*i);
   const goalN=gy*nx+gx, zg=z[cell(gx,gy)], HW=p.hw||1.6;   // weighted A*: a little less than optimal, many times faster
@@ -136,10 +136,12 @@ function astarSki(p,I){
     const c=cell(i,j), m=cell(ii,jj), mid=Math.min(h-1,Math.round((2*j+2*jj)/2))*w+Math.min(w-1,Math.round((2*i+2*ii)/2));
     const d=Math.hypot(D16[dd][0],D16[dd][1])*cs[Math.min(h-1,2*j)], dz=z[m]-z[c], ang=Math.atan(Math.abs(dz)/d)*57.2958;
     let base=d*0.015+(dz>0?dz*0.15:-dz*0.02);
-    if(ang>27)base*=1+((ang-27)/4)**2;                       // track steeper than a comfortable skin track
+    // a skin track steeper than ~30° is not skinnable: kick turns instead. The factor applies to the avalanche
+    // term too, otherwise the route would go straight up through steep terrain to keep the exposure short.
+    const steep=ang>26?1+((ang-26)/3)**2+(ang>31?((ang-31)/1.5)**3:0):1;
     if(slope[m]>50||slope[mid]>50)base*=8;                    // cliffs
     base*=(fac[c]+fac[mid]+fac[m])/3;
-    const hz=(I[c]+I[mid]+I[m])/3; return base+d*0.015*p.weight*30*hz*hz};
+    const hz=(I[c]+I[mid]+I[m])/3; return (base+d*0.015*p.weight*30*hz*hz)*steep};
   // exact remaining cost without turns (backwards Dijkstra from the goal) as heuristic: the search then stays in a narrow corridor
   const H2=new Float32Array(NN).fill(Infinity), dn=new Uint8Array(NN);
   {let qk=new Float32Array(1<<16), qv=new Int32Array(1<<16), qn=0;

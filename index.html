@@ -95,6 +95,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .me{position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 6px rgba(26,115,232,.25),0 1px 4px rgba(0,0,0,.4);transform:translate(-50%,-50%);pointer-events:none}
 .pmark{position:absolute;left:0;top:0;transform:translate(-50%,-100%);pointer-events:none;font:700 11px/1 var(--font-body);color:#fff;background:#2e9d4f;border:2px solid #fff;border-radius:999px;padding:4px 7px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .pmark.goal{background:#1b2420}
+.spt{position:absolute;left:0;top:0;pointer-events:auto;border:0;background:none;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:0}
+.spt svg{width:22px;height:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.spt span{font:600 11px/1.1 var(--font-body);color:#1b2420;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .pmark.via{background:#fff;color:#1b2420;border-color:#1b2420;padding:3px 7px}
 .planbar{z-index:6}
 .tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
@@ -266,7 +269,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <button class="qchip" id="qOverview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg> Übersicht</button>
         <button class="qchip" id="qLayers">Ebenen <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button>
         <button class="qchip" id="qAval" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M7 21l5-7 5 7M10 17l2-3 2 3"/></svg> Lawine</button>
-        <button class="qchip" data-proxy="lyWinter">Winter</button>
+        <button class="qchip" id="qSeason" aria-pressed="true">Winter</button>
         <button class="qchip" data-proxy="lySlope">Hangneigung</button>
         <button class="qchip" id="qSlopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg> Hangsuche</button>
         <button class="qchip" data-proxy="lyAspect">Exposition</button>
@@ -284,7 +287,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
     <div class="offbar planbar" id="planBar" hidden>
       <div class="row" style="justify-content:space-between"><div class="row" role="group" aria-label="Tourart"><button class="chip" data-pmode="ski" aria-pressed="true">Skitour</button><button class="chip" data-pmode="hike" aria-pressed="false">Bergtour</button></div><button class="btn" id="pbSettings">Einstellungen</button></div>
       <div id="pbInfo" style="font-size:14px;line-height:1.35">Tippe den Startpunkt in die Karte.</div>
-      <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
+      <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbHere">Standort</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
+      <div class="hint" style="font-size:12px">Tippen auf die Linie fügt einen Zwischenpunkt ein, Tippen auf einen Punkt entfernt ihn.</div>
     </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -415,6 +419,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <div class="row" style="margin-top:8px"><label class="btn" for="gpx">GPX-Datei laden</label><input class="sr" type="file" id="gpx"></div>
       </div>
 
+      <div class="sec" data-tab="plan">
+        <h2>Gespeicherte Punkte</h2>
+        <div id="ptList"></div>
+        <div class="row" style="margin-top:8px"><button class="btn" id="ptGpx">Alle Punkte als GPX</button></div>
+      </div>
+
       <div class="sec" data-tab="slopes">
         <p class="hint">Markiert im geladenen Gebiet alle Hänge, die zu Höhe, Exposition und Steilheit passen.</p>
         <div class="wctl" style="margin-top:8px">
@@ -468,12 +478,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=50"></script>
-<script src="js/config.js?v=50"></script>
-<script src="js/geo.js?v=50"></script>
-<script src="js/borders.js?v=50"></script>
-<script src="js/sources.js?v=50"></script>
-<script src="js/region.js?v=50"></script>
-<script src="js/app.js?v=50"></script>
+<script src="data/nordkette-meta.js?v=51"></script>
+<script src="js/config.js?v=51"></script>
+<script src="js/geo.js?v=51"></script>
+<script src="js/borders.js?v=51"></script>
+<script src="js/sources.js?v=51"></script>
+<script src="js/region.js?v=51"></script>
+<script src="js/app.js?v=51"></script>
 </body>
 </html>
