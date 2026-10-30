@@ -107,6 +107,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .stn{position:absolute;left:0;top:0;pointer-events:auto;border:0;font:700 11px/1 var(--font-body);color:#fff;background:#1f4ea3;border-radius:6px;padding:4px 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer;font-variant-numeric:tabular-nums}
 .stn::after{content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);border:4px solid transparent;border-top-color:#1f4ea3;border-bottom:0}
 .stn i{font-style:normal;color:#9fd8ff}
+.overview{position:absolute;inset:0;z-index:7;background:#e8ecef}
+#ovMap{position:absolute;inset:0;bottom:var(--bar)}
+.ovbar{position:absolute;left:12px;right:12px;top:calc(max(10px,env(safe-area-inset-top,0px)));z-index:500;padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.overview .leaflet-popup-content{font:14px var(--font-body)}
 .drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--panel) 70%,transparent);font-weight:600}
 
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;max-height:72%;background:var(--panel);border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.2);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -257,6 +261,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       </div>
       <div class="results card" id="searchResults" hidden></div>
       <div class="chipbar" role="group" aria-label="Schnellauswahl">
+        <button class="qchip" id="qOverview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg> Übersicht</button>
         <button class="qchip" id="qLayers">Ebenen <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button>
         <button class="qchip" id="qAval" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M7 21l5-7 5 7M10 17l2-3 2 3"/></svg> Lawine</button>
         <button class="qchip" data-proxy="lyWinter">Winter</button>
@@ -270,6 +275,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       </div>
     </div>
 
+    <div class="overview" id="overview" hidden>
+      <div id="ovMap"></div>
+      <div class="ovbar card"><div><b>Übersicht</b><div class="hint" id="ovHint">Tippe einen Ort an, um ihn in 3D zu öffnen. Blau: geladenes Gebiet, grün: offline gespeichert.</div></div><button class="btn primary" id="ovClose">Zurück zu 3D</button></div>
+    </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div id="pointInfo"></div>
@@ -358,7 +367,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <label for="lineS">Schneegrenze Südseite</label>
           <div class="rng"><input type="range" id="lineS" min="400" max="2600" step="50" value="950"><output id="lineSOut" for="lineS">950 m</output></div>
           <label for="wind">Hauptwind aus</label>
-          <select id="wind"><option value="0">kein Wind</option><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
+          <select id="wind"><option value="0" selected>kein Wind</option><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option>NW</option></select>
           <label for="newSnow">Neuschnee</label>
           <select id="newSnow"><option value="0" selected>kein</option><option value="0.5">0,5 m</option><option value="1">1 m</option><option value="1.5">1,5 m</option></select>
         </div>
@@ -367,9 +376,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 
       <div data-tab="plan"><div class="sec" id="planSec">
         <h2>Tour planen</h2>
-        <p class="hint">Setze Start und Ziel, dann sucht die App den Weg mit möglichst wenig Lawinengelände und angenehmer Steilheit. Gib dazu die Gefahrenstufe und die Kernzone aus dem Lawinenlagebericht an.</p>
+        <div class="row" role="group" aria-label="Tourart" style="margin-bottom:8px"><button class="chip" id="planSki" aria-pressed="true">Skitour</button><button class="chip" id="planHike" aria-pressed="false">Bergtour</button></div>
+        <p class="hint" id="planHint">Setze Start und Ziel. Die Skitour sucht einen Weg mit wenig Lawinengelände, angenehmer Steilheit und ohne dichten Wald. Gib dazu Gefahrenstufe und Kernzone aus dem Lagebericht an.</p>
         <div class="row" style="margin:8px 0"><button class="btn primary" id="planPick">Start und Ziel setzen</button><button class="btn" id="planSwap">Tauschen</button></div>
-        <div class="wctl">
+        <div class="wctl" id="planAval">
           <label for="planDl">Gefahrenstufe</label>
           <select id="planDl"><option value="1">1 gering</option><option value="2" selected>2 mäßig</option><option value="3">3 erheblich</option><option value="4">4 groß</option></select>
           <span>Kernzone</span>
@@ -379,6 +389,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           </div>
           <label for="planElev">Kernzone ab</label>
           <div class="rng"><input type="range" id="planElev" min="0" max="3200" step="100" value="0"><output id="planElevOut">alle Höhen</output></div>
+        </div>
+        <div class="wctl" id="planHikeOpts" hidden>
+          <label for="planMaxG">Wege bis</label>
+          <select id="planMaxG"><option value="2">T2 Bergweg</option><option value="3" selected>T3 anspruchsvoller Bergweg</option><option value="4">T4 Alpinwanderung</option><option value="5">T5 anspruchsvoll</option><option value="6">T6 schwierig</option></select>
+        </div>
+        <div class="wctl" id="planCommon">
           <label for="planW">Gewichtung</label>
           <div class="rng"><input type="range" id="planW" min="0.3" max="3" step="0.1" value="1"><output id="planWOut">ausgewogen</output></div>
         </div>
@@ -423,7 +439,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p style="margin:0 0 4px;font-weight:600">Linefinder</p>
         <p class="hint" id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</p>
         <button class="btn" id="goNordkette" style="margin:8px 0" hidden>Zurück zur Nordkette</button>
-        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Lawinenlagebericht und Messstationen: Lawinenwarndienste Tirol, Südtirol und Trentino (avalanche.report), Regionen: EAWS. Walddichte und Waldtyp: Copernicus Land Monitoring Service, High Resolution Layer Forest (EEA). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Übersichtskarte: OpenTopoMap (CC-BY-SA), OpenStreetMap-Mitwirkende, SRTM. Lawinenlagebericht und Messstationen: Lawinenwarndienste Tirol, Südtirol und Trentino (avalanche.report), Regionen: EAWS. Walddichte und Waldtyp: Copernicus Land Monitoring Service, High Resolution Layer Forest (EEA). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
       </div>
     </div></div>
   </section>
@@ -445,12 +461,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=43"></script>
-<script src="js/config.js?v=43"></script>
-<script src="js/geo.js?v=43"></script>
-<script src="js/borders.js?v=43"></script>
-<script src="js/sources.js?v=43"></script>
-<script src="js/region.js?v=43"></script>
-<script src="js/app.js?v=43"></script>
+<script src="data/nordkette-meta.js?v=44"></script>
+<script src="js/config.js?v=44"></script>
+<script src="js/geo.js?v=44"></script>
+<script src="js/borders.js?v=44"></script>
+<script src="js/sources.js?v=44"></script>
+<script src="js/region.js?v=44"></script>
+<script src="js/app.js?v=44"></script>
 </body>
 </html>
