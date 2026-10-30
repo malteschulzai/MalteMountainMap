@@ -1208,11 +1208,11 @@ function drawGlobe(){
   if(globe.width!==px){globe.width=px;globe.height=px}
   const c=gctx, cx=px/2, cy=px/2, R0=px/2-1*dpr, r=px*0.27;
   c.clearRect(0,0,px,px);
-  c.beginPath(); c.arc(cx,cy,R0,0,Math.PI*2); c.fillStyle=getComputedStyle(globe).getPropertyValue("--gbg")||"#fff"; c.fill();
+  c.beginPath(); c.arc(cx,cy,R0,0,Math.PI*2); c.fillStyle=getComputedStyle(globe).getPropertyValue("--gbg").trim()||"#fff"; c.fill();
   gq.copy(camera.quaternion).invert();
   const P=(lat,lon)=>{gv.set(Math.cos(lat)*Math.sin(lon),Math.sin(lat),-Math.cos(lat)*Math.cos(lon)).applyQuaternion(gq);return [cx+gv.x*r,cy-gv.y*r,gv.z]};
   const line=pts=>{c.beginPath();let pen=false;for(const q of pts){if(q[2]<-0.02){pen=false;continue}if(!pen){c.moveTo(q[0],q[1]);pen=true}else c.lineTo(q[0],q[1])}c.stroke()};
-  const ink=getComputedStyle(globe).getPropertyValue("--gink")||"#1b2420";
+  const ink=getComputedStyle(globe).getPropertyValue("--gink").trim()||"#1b2420";
   c.strokeStyle=ink; c.lineCap="round"; c.lineJoin="round"; c.lineWidth=2.2*dpr;
   c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.stroke();
   {const pts=[];for(let lo=0;lo<=360;lo+=5)pts.push(P(0,lo*Math.PI/180));line(pts)}
