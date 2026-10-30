@@ -1203,28 +1203,20 @@ function updateLabels(){
 // ---------- Globe: drag to turn and tilt, tap to face north ----------
 const globe=$("globe"), gctx=globe.getContext("2d"), gv=new THREE.Vector3(), gq=new THREE.Quaternion();
 function drawGlobe(){
-  const dpr=Math.min(2,window.devicePixelRatio||1), S=globe.clientWidth||68, px=Math.round(S*dpr);
+  // FATMAP-style round white button with a line globe that turns and tilts with the view
+  const dpr=Math.min(2,window.devicePixelRatio||1), S=globe.clientWidth||48, px=Math.round(S*dpr);
   if(globe.width!==px){globe.width=px;globe.height=px}
-  const c=gctx, r=px/2-2*dpr, cx=px/2, cy=px/2;
+  const c=gctx, cx=px/2, cy=px/2, R0=px/2-1*dpr, r=px*0.27;
   c.clearRect(0,0,px,px);
-  const g=c.createRadialGradient(cx-r*.35,cy-r*.4,r*.08,cx,cy,r);
-  g.addColorStop(0,"#f4f8fb"); g.addColorStop(.7,"#b9cfdf"); g.addColorStop(1,"#7f9db6");
-  c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.fillStyle=g; c.fill();
+  c.beginPath(); c.arc(cx,cy,R0,0,Math.PI*2); c.fillStyle=getComputedStyle(globe).getPropertyValue("--gbg")||"#fff"; c.fill();
   gq.copy(camera.quaternion).invert();
   const P=(lat,lon)=>{gv.set(Math.cos(lat)*Math.sin(lon),Math.sin(lat),-Math.cos(lat)*Math.cos(lon)).applyQuaternion(gq);return [cx+gv.x*r,cy-gv.y*r,gv.z]};
-  const line=(pts)=>{for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i];if(a[2]<0||b[2]<0)continue;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke()}};
-  c.lineWidth=1*dpr; c.strokeStyle="rgba(27,36,32,.38)";
-  for(let lo=0;lo<12;lo++){const pts=[];for(let la=-90;la<=90;la+=10)pts.push(P(la*Math.PI/180,lo*Math.PI/6));line(pts)}
-  for(let la=-60;la<=60;la+=30){const pts=[];for(let lo=0;lo<=360;lo+=10)pts.push(P(la*Math.PI/180,lo*Math.PI/180));line(pts)}
-  c.strokeStyle="rgba(27,36,32,.75)"; c.lineWidth=1.6*dpr;
-  {const pts=[];for(let lo=0;lo<=360;lo+=6)pts.push(P(0,lo*Math.PI/180));line(pts)}
-  c.strokeStyle="#d7301f"; c.lineWidth=2*dpr;
-  {const pts=[];for(let la=0;la<=90;la+=6)pts.push(P(la*Math.PI/180,0));line(pts)}
-  const n=P(0,0); let nx=n[0]-cx, ny=n[1]-cy; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
-  const bx=cx+nx*(r-6*dpr), by=cy+ny*(r-6*dpr);
-  c.fillStyle="#d7301f"; c.beginPath(); c.arc(bx,by,6*dpr,0,Math.PI*2); c.fill();
-  c.fillStyle="#fff"; c.font=`700 ${8*dpr}px Barlow, sans-serif`; c.textAlign="center"; c.textBaseline="middle"; c.fillText("N",bx,by+0.5*dpr);
-  c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.strokeStyle="rgba(27,36,32,.5)"; c.lineWidth=1*dpr; c.stroke();
+  const line=pts=>{c.beginPath();let pen=false;for(const q of pts){if(q[2]<-0.02){pen=false;continue}if(!pen){c.moveTo(q[0],q[1]);pen=true}else c.lineTo(q[0],q[1])}c.stroke()};
+  const ink=getComputedStyle(globe).getPropertyValue("--gink")||"#1b2420";
+  c.strokeStyle=ink; c.lineCap="round"; c.lineJoin="round"; c.lineWidth=2.2*dpr;
+  c.beginPath(); c.arc(cx,cy,r,0,Math.PI*2); c.stroke();
+  {const pts=[];for(let lo=0;lo<=360;lo+=5)pts.push(P(0,lo*Math.PI/180));line(pts)}
+  for(const lo of [0,90]){const pts=[];for(let la=-90;la<=90;la+=5)pts.push(P(la*Math.PI/180,lo*Math.PI/180));line(pts)}
 }
 const sph=new THREE.Spherical(), off=new THREE.Vector3();
 function orbit(dTheta,dPhi,abs){

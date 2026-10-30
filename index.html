@@ -175,7 +175,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .rb.loc{width:56px;height:56px;color:#1a73e8}
 .rb.loc[aria-pressed="true"]{background:#1a73e8;color:#fff}
 #needle{transition:transform .15s linear}
-.rcol .globe{position:static;width:52px;height:52px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
+.rcol .globe{position:static;width:48px;height:48px;border-radius:50%;touch-action:none;cursor:grab;box-shadow:0 2px 8px rgba(0,0,0,.22);--gbg:#ffffff;--gink:#1b2420}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .rcol .globe{--gbg:#181f1b;--gink:#e6ece8}}
 .pad{right:calc(max(12px,env(safe-area-inset-right,0px)) + 64px);bottom:calc(var(--bar) + 90px)}
 .status{bottom:calc(var(--bar) + 14px);left:calc(max(12px,env(safe-area-inset-left,0px)) + 40px);max-width:calc(100% - 150px)}
 .ibtn{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(var(--bar) + 10px);width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:#3b4640;font:700 15px/1 Georgia,serif;box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer;z-index:2}
@@ -425,12 +426,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=38"></script>
-<script src="js/config.js?v=38"></script>
-<script src="js/geo.js?v=38"></script>
-<script src="js/borders.js?v=38"></script>
-<script src="js/sources.js?v=38"></script>
-<script src="js/region.js?v=38"></script>
-<script src="js/app.js?v=38"></script>
+<script src="data/nordkette-meta.js?v=39"></script>
+<script src="js/config.js?v=39"></script>
+<script src="js/geo.js?v=39"></script>
+<script src="js/borders.js?v=39"></script>
+<script src="js/sources.js?v=39"></script>
+<script src="js/region.js?v=39"></script>
+<script src="js/app.js?v=39"></script>
 </body>
 </html>
