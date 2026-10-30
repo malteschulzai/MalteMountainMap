@@ -581,10 +581,16 @@ function rebuildMask(){
   maskTex.needsUpdate=true; needsRender=true;
 }
 async function fetchDem(mx0,mx1,my0,my1){
-  const midLon=MMMGeo.mercToLonLat((mx0+mx1)/2,(my0+my1)/2)[0];
-  const order=midLon<11.7?[28,31]:[31,28];
+  const [midLon,midLat]=MMMGeo.mercToLonLat((mx0+mx1)/2,(my0+my1)/2);
+  const tirol=midLon>10.0&&midLon<13.05&&midLat>46.6&&midLat<47.8&&(!window.MMMSrc||MMMSrc.country(midLon,midLat)==="AT");
   let last=null;
-  for(const z of order){try{const d=await fetchDemZone(mx0,mx1,my0,my1,z); if(d)return d}catch(e){last=e}}
+  if(tirol){const order=midLon<11.7?[28,31]:[31,28];
+    for(const z of order){try{const d=await fetchDemZone(mx0,mx1,my0,my1,z); if(d)return d}catch(e){last=e}}}
+  // swissALTI3D (2 m) or IGN RGE ALTI (1 m) outside Tirol
+  if(window.MMMSrc){const d=await MMMSrc.demGrid(mx0,mx1,my0,my1,PN,PN,{corner:true,fine:true}).catch(e=>{last=e;return null});
+    if(d){let bad=0;
+      for(let j=0;j<PN;j++)for(let i=0;i<PN;i++){const k=j*PN+i;if(!(d[k]===d[k])){bad++;d[k]=elevAt(gxOfMx(mx0+(mx1-mx0)*i/(PN-1)),gyOfMy(my1-(my1-my0)*j/(PN-1)))}}
+      if(bad<PN*PN*0.4)return d}}
   throw last||new Error("keine Daten");
 }
 async function fetchDemZone(mx0,mx1,my0,my1,zone){
@@ -816,7 +822,8 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const jobs=[]; let done=0, ok=0; const total=(tx1-tx0+1)*(ty1-ty0+1);
   for(let ty=ty0;ty<=ty1;ty++)for(let tx=tx0;tx<=tx1;tx++){
     const dx=(tx*tileM-ORIGIN-mx0)/res, dy=(my1-(ORIGIN-ty*tileM))/res;
-    jobs.push(fetchTile(tileUrl(z,tx,ty)).then(async bm=>{
+    const nat=window.MMMSrc?MMMSrc.orthoUrl(z,tx,ty):null;
+    jobs.push(fetchTile(nat||tileUrl(z,tx,ty)).then(async bm=>{
       if(bm){ok++;ctx.drawImage(bm,dx,dy,256,256);bm.close&&bm.close()}
       else if(z<=EOX_MAXZ){ // outside Austria: Mapbox Satellite with token, else Sentinel-2 cloudless (10 m)
         const q=MBT&&z>=2?await mbQuad(z,tx,ty):null;
@@ -1493,7 +1500,7 @@ $("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,butt
 function goTo(lon,lat,name){saveState();const [sl,sb]=snap(lon,lat);location.href="./?at="+sl+","+sb+"&t="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
 // region centres sit on a ~2.3 km grid
 const snap=(lon,lat)=>[+(Math.round(lon/0.03)*0.03).toFixed(2),+(Math.round(lat/0.02)*0.02).toFixed(2)];
-const inArea=(lon,lat)=>(window.MMM_CONFIG||{}).mapboxToken?(lon>5.0&&lon<16.9&&lat>43.5&&lat<48.5):(lon>9.0&&lon<14.0&&lat>46.0&&lat<48.2);
+const inArea=(lon,lat)=>lon>5.0&&lon<16.9&&lat>43.5&&lat<48.5;
 const prefetched=new Map();
 function prefetch(lon,lat,onBytes){const k=lon+","+lat; if(!prefetched.has(k))prefetched.set(k,window.MMM_prefetchRegion(lon,lat,onBytes).catch(e=>({ok:false,err:e.message}))); return prefetched.get(k)}
 let searchTimer=null, searchSeq=0;
@@ -1502,10 +1509,10 @@ async function runSearch(q){
   if(q.trim().length<2){out.innerHTML="";return}
   out.innerHTML='<p class="hint">Suche …</p>';
   try{
-    const vb=(window.MMM_CONFIG||{}).mapboxToken?"5.0,48.4,16.9,43.6":"10.05,47.80,12.98,46.62";
+    const vb="5.0,48.4,16.9,43.6";
     const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=de&bounded=1&viewbox="+vb+"&q="+encodeURIComponent(q));
     const list=await r.json(); if(my!==searchSeq)return;
-    if(!list.length){out.innerHTML='<p class="hint">Nichts gefunden in Tirol. Versuch es mit einem Gipfel, Ort oder einer Hütte.</p>';return}
+    if(!list.length){out.innerHTML='<p class="hint">Nichts gefunden in den Alpen. Versuch es mit einem Gipfel, Ort oder einer Hütte.</p>';return}
     out.innerHTML="";
     list.forEach(p=>{const b=document.createElement("button");b.className="result";
       const nm=p.name||p.display_name.split(",")[0], rest=p.display_name.split(",").slice(1,3).join(",").trim();
@@ -1583,7 +1590,9 @@ if(REG){
     camera.position.copy(tg).add(new THREE.Vector3().setFromSpherical(new THREE.Spherical(cam[0],cam[2],cam[1])));
     camera.lookAt(tg); needsRender=true; scheduleLOD();
   } else { lookAt(gx,gy+180,30,"3d"); placeMarker(gx,gy) }
-  if(META.name){$("subtitle").textContent=META.name+" · Laserscan-Gelände Tirol"}else $("subtitle").textContent="Tirol · Laserscan-Gelände";
+  {const c=META.center||[0,0], sn=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]), tir=c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8&&(!window.MMMSrc||MMMSrc.country(c[0],c[1])==="AT");
+   const lbl=tir?"Laserscan Tirol":sn==="swisstopo"?"swissALTI3D":sn==="IGN"?"IGN RGE ALTI":"Gelände 30 m";
+   $("subtitle").textContent=(META.name||"Alpen")+" · "+lbl}
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
 if(state.winter)await computeWinter();
 applyUniforms();

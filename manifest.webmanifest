@@ -1,6 +1,6 @@
 {
-  "name": "Malte Mountain Map",
-  "short_name": "Mountain Map",
+  "name": "Linefinder",
+  "short_name": "Linefinder",
   "description": "3D-Tourenkarte Nordkette mit Luftbild, Laserscan-Gelände und Winterlayer",
   "start_url": "./",
   "scope": "./",

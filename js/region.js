@@ -1,4 +1,4 @@
-// Malte Mountain Map – any place in Tirol, loaded at runtime from Land Tirol services.
+// Linefinder – any place in the Alps: Land Tirol laser scan, swissALTI3D, IGN RGE ALTI, else Terrarium.
 // Active when the URL has ?at=lon,lat[&n=name]. Builds the same data the app gets for the Nordkette:
 // 5 m terrain grid (Web Mercator), vegetation from surface minus terrain, tree positions, surrounding terrain.
 (function(){
@@ -60,7 +60,7 @@ async function sampleWcs(covs,mx0,mx1,my0,my1,nx,ny,res){
 // global terrain (Terrarium, ~25 m at z12) to fill everything outside the Land Tirol data
 // Mapbox terrain only when explicitly enabled (Raster Tiles API is not part of Mapbox demo access)
 const MBT=(window.MMM_CONFIG||{}).mapboxDem?(window.MMM_CONFIG||{}).mapboxToken||"":"";
-const DEMZ=MBT?14:12;
+const DEMZ=MBT?14:13;
 function terrUrls(z,mx0,mx1,my0,my1){
   const tileM=2*ORIGIN/2**z, out=[];
   for(let ty=Math.floor((ORIGIN-my1)/tileM);ty<=Math.floor((ORIGIN-my0)/tileM);ty++)
@@ -140,8 +140,11 @@ window.MMM_prefetchRegion=async(lon,lat,onBytes)=>{
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
            ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(DEMZ,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
+  const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   let err="";
-  const res=await Promise.all(u.map((x,i)=>cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
+  const natP=window.MMMSrc?window.MMMSrc.demGrid(f.x0,f.x1,f.y0,f.y1,f.W,f.H).catch(()=>null):Promise.resolve(null);
+  const res=await Promise.all(u.map((x,i)=>i<2&&!tirol?Promise.resolve(false):cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
+  await natP;
   // outside Tirol the Land Tirol request may fail, the global terrain is enough then
   return {ok:res[0]||res.slice(3).some(Boolean),err};
 };
@@ -151,15 +154,19 @@ if(!isFinite(lon)||!isFinite(lat))return;
 const name=(qs.get("n")||"").slice(0,80);
 window.MMM_REGION_PROMISE=(async()=>{
   const {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0}=frame(lon,lat);
-  say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":"Gelände außerhalb von Tirol wird geladen …");
+  const src=window.MMMSrc&&window.MMMSrc.sourceName(lon,lat);
+  say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":src==="swisstopo"||src==="IGN"?`Gelände wird geladen (${src}) …`:"Gelände wird geladen …");
   const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
   const VW=W/2, VH=H/2;
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   const domP=!tirol?Promise.resolve(null):sampleWcs(lon<11.75?[["Oberflaechenmodell_5m_M28",28],["Oberflaechenmodell_50cm_M31",31]]:[["Oberflaechenmodell_50cm_M31",31],["Oberflaechenmodell_5m_M28",28]],x0,x1,y0,y1,VW,VH,10).catch(()=>null);
   const dgmR=!tirol?null:await sampleWcs(lon<11.75?[["Gelaendemodell_5m_M28",28],["Gelaendemodell_50cm_M31",31],["Gelaendemodell_50cm_M28",28]]:[["Gelaendemodell_50cm_M31",31],["Gelaendemodell_5m_M28",28]],x0,x1,y0,y1,W,H,res);
+  const natP=window.MMMSrc?window.MMMSrc.demGrid(x0,x1,y0,y1,W,H,{onTile:f=>say(`Gelände wird geladen (${src||"Landesdaten"}) … ${Math.round(f*100)} %`)}).catch(e=>{console.warn(e);return null}):Promise.resolve(null);
+  const nat=await natP;
   const terr=await terrP;
-  if(!dgmR&&!terr)throw new Error("Für diesen Ort konnten keine Geländedaten geladen werden. Prüfe die Verbindung und versuche es nochmal.");
+  if(!dgmR&&!terr&&!nat)throw new Error("Für diesen Ort konnten keine Geländedaten geladen werden. Prüfe die Verbindung und versuche es nochmal.");
   const dgm=dgmR?dgmR.data:new Float32Array(W*H).fill(NaN);
+  if(nat)for(let k=0;k<W*H;k++)if(!(dgm[k]===dgm[k])&&nat[k]===nat[k])dgm[k]=nat[k];
   if(terr){
     // blend the 5 m laser scan into the global terrain over ~100 m at the data edge
     const valid=new Uint8Array(W*H); for(let k=0;k<W*H;k++)valid[k]=dgm[k]===dgm[k]?1:0;

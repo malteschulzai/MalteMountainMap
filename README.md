@@ -1,4 +1,4 @@
-# Malte Mountain Map
+# Linefinder
 
 Ganz Tirol: Über die Suche oder `?at=lon,lat` wird ein Bereich von 10 × 7,5 km mit 5-m-Gelände, Wald und Umgebung direkt von den Diensten des Landes Tirol geladen. Nahe der Kamera kommen 1-m-Detailkacheln dazu.
 
