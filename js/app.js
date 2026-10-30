@@ -1868,21 +1868,23 @@ async function offDownload(e){
     st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert …`;
     try{await window.MMM_keepRegion(lon,lat,n=>{st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert … ${n} %`})}catch(err){failR++;console.warn(err)}
   }
-  // names, paths, pistes and lifts of every area
+  // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
+  for(const [lon,lat] of p.regions){if(!(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8))continue;
+    const cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat), w=Math.min(4096,MAXTEX), x0=cx-2000/2*cell, y1=cy+1500/2*cell;
+    shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000)).forEach(u=>urls.push(u))}
+  const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
+  const work=async()=>{while(k<urls.length){const u=urls[k++];
+    try{if(!(await caches.match(u))){const r=await fetch(u,{mode:"cors"});if(!r.ok)throw 0;const bl=await r.clone().blob();bytes+=bl.size;await cache.put(u,r)}else await cache.put(u,await caches.match(u))}catch(err){fail++}
+    done++; if(done%20===0||done===urls.length)st.textContent=`Luftbild wird gespeichert … ${Math.round(done/urls.length*100)} %`}};
+  await Promise.all(Array.from({length:6},work));
+  // names, paths, pistes and lifts of every area (last, the OSM server is often the slowest part)
   let failO=0;
   for(let i=0;i<p.regions.length;i++){
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
     const o1=await overpass(q1,base+"/main4",[],1), o2=await overpass(q2,base+"/tracks6",[],1); if(!o1||!o2)failO++;
-    // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
-    if(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8){const w=Math.min(4096,MAXTEX);(()=>{const x0=cx-2000/2*cell, y1=cy+1500/2*cell;return shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000))})().forEach(u=>urls.push(u))}
   }
-  const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
-  const work=async()=>{while(k<urls.length){const u=urls[k++];
-    try{if(!(await caches.match(u))){const r=await fetch(u,{mode:"cors"});if(!r.ok)throw 0;const bl=await r.clone().blob();bytes+=bl.size;await cache.put(u,r)}else await cache.put(u,await caches.match(u))}catch(err){fail++}
-    done++; if(done%20===0||done===urls.length)st.textContent=`Luftbild wird gespeichert … ${Math.round(done/urls.length*100)} %`}};
-  await Promise.all(Array.from({length:6},work));
   const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
   areas.push({id:Date.now(),name,b,regions:p.regions,detail:+$("offDetail").value,km:p.km,mb:Math.round(p.mb),date:new Date().toISOString().slice(0,10)});
   saveAreas(areas); renderAreas();
