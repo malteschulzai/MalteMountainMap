@@ -347,9 +347,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <label for="lineS">Schneegrenze Südseite</label>
           <div class="rng"><input type="range" id="lineS" min="400" max="2600" step="50" value="950"><output id="lineSOut" for="lineS">950 m</output></div>
           <label for="wind">Hauptwind aus</label>
-          <select id="wind"><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
+          <select id="wind"><option value="0">kein Wind</option><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
+          <label for="newSnow">Neuschnee</label>
+          <select id="newSnow"><option value="0" selected>kein</option><option value="0.5">0,5 m</option><option value="1">1 m</option><option value="1.5">1,5 m</option></select>
         </div>
-        <p class="hint">Modellierte Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Ost- und Westhänge liegen zwischen den beiden Schneegrenzen. Keine gemessene Schneehöhe.</p>
+        <p class="hint">Modellierte Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Ost- und Westhänge liegen zwischen den beiden Schneegrenzen. Neuschnee füllt Rinnen, deckt Grate, Latschen und Felsstufen zu und bleibt auch auf steilerem Gelände liegen. Keine gemessene Schneehöhe.</p>
       </div></div>
 
       <div data-tab="plan"><div class="sec" id="planSec">
@@ -432,12 +434,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=41"></script>
-<script src="js/config.js?v=41"></script>
-<script src="js/geo.js?v=41"></script>
-<script src="js/borders.js?v=41"></script>
-<script src="js/sources.js?v=41"></script>
-<script src="js/region.js?v=41"></script>
-<script src="js/app.js?v=41"></script>
+<script src="data/nordkette-meta.js?v=42"></script>
+<script src="js/config.js?v=42"></script>
+<script src="js/geo.js?v=42"></script>
+<script src="js/borders.js?v=42"></script>
+<script src="js/sources.js?v=42"></script>
+<script src="js/region.js?v=42"></script>
+<script src="js/app.js?v=42"></script>
 </body>
 </html>

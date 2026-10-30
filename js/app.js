@@ -172,36 +172,39 @@ function winterPrep(dir,needForm){
   });
 }
 async function computeWinter(quiet){
-  const key=[state.snow,state.wind,state.lineN,state.lineS].join("|"); if(key===winterKey)return;
+  const key=[state.snow,state.wind,state.lineN,state.lineS,state.newSnow].join("|"); if(key===winterKey)return;
   if(!quiet)loadEl.hidden=false;
-  if(!form||shelterDir!==state.wind){
+  const noWind=state.wind==="0";
+  if(!form||(!noWind&&shelterDir!==state.wind)){
     if(!quiet)await tick("Winter: Geländeformen und Windschatten …");
-    const r=await winterPrep(state.wind,!form); if(r.form)form=r.form; shelter=r.shelter; shelterDir=state.wind;
+    const dir=noWind?(shelterDir||"NW"):state.wind;
+    const r=await winterPrep(dir,!form); if(r.form)form=r.form; shelter=r.shelter; shelterDir=dir;
   }
   if(!quiet)await tick("Winter: Schnee wird verteilt …");
-  const P=PRESETS[state.snow], LN=state.lineN, LD=state.lineS-state.lineN;
+  const P=PRESETS[state.snow], LN=state.lineN, LD=state.lineS-state.lineN, ns=+state.newSnow||0;
   for(let k=0;k<N;k++){
     const e=E(k), s=slopeAt(k), L=LN+LD*southness[k]/255;
     const fE=smooth(L-100,L+300,e);
-    // gullies and hollows collect snow and hold it on steeper ground, ridges get scoured
-    const fm=form[k]/100, gully=fm>0?fm:0, ridge=fm<0?-fm:0, hold=9*Math.min(1,gully*1.5);
+    // gullies and hollows collect snow and hold it on steeper ground, ridges get scoured;
+    // fresh snow sticks to steeper ground everywhere and covers ridges and south slopes for a while
+    const fm=form[k]/100, gully=fm>0?fm:0, ridge=fm<0?-fm:0, hold=9*Math.min(1,gully*1.5)+5*ns;
     const fS=1-smooth(P.steepLo+hold,P.steepHi+hold,s);
-    const sun=P.sun*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e));
-    const wind=Math.max(-0.45,Math.min(0.45,shelter[k]/(P.wind*2.5)));
-    const v=fE*fS*(1+P.bonus+P.form*(1.8*gully-ridge)+0.35*Math.min(1,gully*2)+wind-sun);
+    const sun=P.sun*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e))*(1-0.45*ns);
+    const wind=noWind?0:Math.max(-0.45,Math.min(0.45,shelter[k]/(P.wind*2.5)))*(1-0.25*ns);
+    const v=fE*fS*(1+P.bonus+0.3*ns+P.form*(1.8*gully-ridge*(1-0.4*ns))+0.35*Math.min(1,gully*2)+wind-sun);
     data[k*4+2]=smooth(P.lo,P.hi,v)*255;
   }
-  dataTex.needsUpdate=true; winterKey=key; shared.bury.value=P.bury; shared.crownSnow.value=P.crown;
-  shared.lineN.value=state.lineN; shared.lineS.value=state.lineS; shared.steepLo.value=P.steepLo-10; shared.steepHi.value=P.steepHi-12; shared.ctxAmt.value=P.ctx;
-  shared.rockLo.value=P.steepLo+6; shared.rockHi.value=P.steepHi+2; needsRender=true;
+  dataTex.needsUpdate=true; winterKey=key; shared.bury.value=Math.max(0,P.bury-0.35*ns); shared.crownSnow.value=Math.min(1,P.crown+0.25*ns);
+  shared.lineN.value=state.lineN; shared.lineS.value=state.lineS; shared.steepLo.value=P.steepLo-10+4*ns; shared.steepHi.value=P.steepHi-12+4*ns; shared.ctxAmt.value=P.ctx;
+  shared.rockLo.value=P.steepLo+6+5*ns; shared.rockHi.value=P.steepHi+2+5*ns; needsRender=true;
   if(!quiet)loadEl.hidden=true;
 }
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -1531,6 +1534,7 @@ let lineTimer=null;
 ["lineN","lineS"].forEach(id=>{$(id).oninput=e=>{state[id]=+e.target.value;setLineOut();clearTimeout(lineTimer);lineTimer=setTimeout(async()=>{await computeWinter(true);applyUniforms()},220)}});
 setLineOut();
 $("wind").onchange=async e=>{state.wind=e.target.value;await computeWinter();applyUniforms()};
+$("newSnow").onchange=async e=>{state.newSnow=e.target.value;await computeWinter();applyUniforms()};
 
 // ---------- My position ----------
 const meEl=$("me"), locBtn=$("locate");
@@ -1930,7 +1934,7 @@ function syncUI(){
   const chips={lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
-  $("snowLvl").value=state.snow; $("wind").value=state.wind; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
+  $("snowLvl").value=state.snow; $("wind").value=state.wind; $("newSnow").value=state.newSnow; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
   $("exag").value=state.exag; $("exagOut").textContent=fmt(state.exag,1)+"×"; shared.exag.value=state.exag;
   $("legendPaths").hidden=!state.paths;
 }
