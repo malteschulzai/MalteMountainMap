@@ -196,9 +196,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
+const state={ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"NW",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -314,6 +314,7 @@ const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
+  aoMap:{value:blank0()}, aoAmt:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
   globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, sgMap:{value:blank0()}, showSG:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
@@ -333,7 +334,8 @@ const FRAG=`
 uniform sampler2D globalMap, localMap, dataMap, vegMap, globalShade, localShade, aspectMap;
 uniform float showAspect, treesOn, isPatch, useFineSlope, showSG;
 uniform sampler2D sgMap;
-uniform sampler2D maskMap, fineSlope;
+uniform sampler2D maskMap, fineSlope, aoMap, searchMap;
+uniform float aoAmt, showSearch;
 uniform float exag, rockLo, rockHi;
 varying vec3 vNrm;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
@@ -439,6 +441,9 @@ void main(){
     vec3 sc = slope>=45.0?vec3(.48,.18,.56):slope>=40.0?vec3(.84,.19,.12):slope>=35.0?vec3(.93,.54,.17):vec3(.95,.82,.23);
     col=mix(col,sc,0.55);
   }
+  // ambient occlusion: gullies and valley floors see less sky
+  if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.6+0.4*ao,aoAmt); }
+  if(showSearch>0.5){ float m=texture2D(searchMap,dUv).r; if(m>0.35) col=mix(col,vec3(0.0,0.78,1.0),0.55*smoothstep(0.35,0.7,m)); }
   if(showContour>0.5 && cont>0.3){ col=mix(col,vec3(.36,.27,.20),cont>0.75?0.55:0.25); }
   float dist=length(vWorld-camPos);
   col=mix(col,haze,smoothstep(fogNear,fogFar,dist)*(winter>0.5?0.55:0.7));
@@ -1025,12 +1030,16 @@ async function overpass(q,key,oldKeys){
   if(cache)for(const k of oldKeys||[]){try{const hit=await cache.match(k); if(hit)return await hit.json()}catch(e){}}
   return null;
 }
-async function loadOsm(){
-  const [w,s]=MMMGeo.mercToLonLat(G.x0,G.y1-H*G.cell), [e,n]=MMMGeo.mercToLonLat(G.x0+W*G.cell,G.y1);
+function osmQueries(g){
+  const [w,s]=MMMGeo.mercToLonLat(g.x0,g.y1-g.H*g.cell), [e,n]=MMMGeo.mercToLonLat(g.x0+g.W*g.cell,g.y1);
   const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
   const q1=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
   const q2=`[out:json][timeout:90];way["highway"="track"](${bb});out geom;`;
   const base="https://mmm.local/osm/"+bb;
+  return {q1,q2,base};
+}
+async function loadOsm(){
+  const {q1,q2,base}=osmQueries({x0:G.x0,y1:G.y1,W,H,cell:G.cell});
   const [j1,j2]=await Promise.all([overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]),overpass(q2,base+"/tracks4",[])]);
   if(!j1&&!j2){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar, neuer Versuch in 30 s";setTimeout(loadOsm,30000);return}
   if(!j2)setTimeout(loadOsm,60000);
@@ -1250,7 +1259,8 @@ renderer.domElement.addEventListener("pointerup",e=>{
   const hp=rayTerrain(ray.ray.origin,ray.ray.direction); if(!hp)return;
   const gx=hp.x/sc+W/2, gy=hp.z/sc+H/2;
   if(plan.pick){planTap(gx,gy);return}
-  lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy);
+  $("searchResults").hidden=true;
+  lastMarker=[gx,gy]; placeMarker(gx,gy); showPoint(gx,gy); if(curTab)openPanel(null); $("pointCard").hidden=false;
 });
 const SAC_NAME=["","T1 Wanderweg","T2 Bergweg","T3 anspruchsvoller Bergweg","T4 Alpinwanderung","T5 anspruchsvolle Alpinwanderung","T6 schwierige Alpinwanderung"];
 function nearestWay(gx,gy){
@@ -1398,7 +1408,7 @@ function parseGPX(text,fname){
 }
 async function loadFile(file){
   try{const {ll,name}=parseGPX(await file.text(),file.name);
-    setRoute(ll,name,`${fmt(ll.length)} Punkte aus ${file.name}`); if(route){fitRoute("3d");setSheet(true)}
+    setRoute(ll,name,`${fmt(ll.length)} Punkte aus ${file.name}`); if(route){fitRoute("3d");openPanel("plan")}
   }catch(err){$("routeInfo").innerHTML=`<p class="warn">${escapeHtml(err.message)} Prüfe, ob du eine .gpx-Datei gewählt hast.</p>`}
 }
 $("gpx").addEventListener("change",e=>{const f=e.target.files[0]; if(f)loadFile(f); e.target.value=""});
@@ -1472,7 +1482,7 @@ $("sgDate").addEventListener("change",()=>{if(state.snowgrid)loadSnowgrid()});
 
 // ---------- Controls ----------
 function applyUniforms(){
-  shared.mode.value=state.base==="ortho"?0:1;
+  shared.mode.value=state.base==="ortho"?0:1; shared.aoAmt.value=state.ao&&aoReady?1:0;
   shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
   $("legendAspect").hidden=!state.aspect;
   shared.showSG.value=state.snowgrid&&sgPts?1:0; $("sgSec").hidden=!state.snowgrid;
@@ -1484,7 +1494,7 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
+[["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
@@ -1589,7 +1599,7 @@ async function runPlan(){
       // like Skitourenguru: mean indicator of the riskiest ~250 m of the route
       const segs=route.samples.map((s,i)=>[route.risk[i],i?s.d-route.samples[i-1].d:0]).sort((a,b)=>b[0]-a[0]);
       let L=0,sum=0; for(const [v,d] of segs){if(L>=250)break;const t=Math.min(d,250-L);sum+=v*t;L+=t}
-      route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo(); fitRoute("3d"); setSheet(true);
+      route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo(); fitRoute("3d"); openPanel("plan");
       $("routeSec").scrollIntoView({block:"start",behavior:"smooth"});
     }
     planStatus.textContent=""; statusEl.textContent="Luftbild: "+orthoSrcName();
@@ -1655,20 +1665,26 @@ function offEstimate(){
   const b=frameBox(); if(!b){offInfo.textContent="Kippe die Karte in die Draufsicht.";$("offGo").disabled=true;return null}
   const p=areaPlan(b,+$("offDetail").value), big=p.regions.length>30||p.urls.length>25000;
   offInfo.textContent=`${fmt(p.km[0],1)} × ${fmt(p.km[1],1)} km · etwa ${fmt(Math.round(p.mb/10)*10)} MB${big?" · zu groß, bitte kleineren Bereich wählen":""}`;
+  if(document.activeElement!==$("offSize"))$("offSize").value=Math.round(p.km[0]); $("offSizeOut").textContent=fmt(Math.round(p.km[0]))+" km";
   $("offGo").disabled=big; return {b,p};
 }
 function openOffSel(){
-  setSheet(false); offSel.hidden=false;
+  setSheet(false); offSel.hidden=false; controls.maxDistance=420;
   const [x,y]=targetGrid(); lookAt(x,y,Math.max(70,Math.min(160,camera.position.distanceTo(controls.target))),"2d");
   setTimeout(offEstimate,100);
 }
 $("offPick").onclick=openOffSel;
-$("offCancel").onclick=()=>{offSel.hidden=true};
+$("offCancel").onclick=()=>{offSel.hidden=true;controls.maxDistance=170};
+$("offSize").oninput=e=>{const b=frameBox(); if(!b)return;
+  const midLat=(b.lat0+b.lat1)/2, wkm=(lonM(b.lon1)-lonM(b.lon0))*Math.cos(midLat*Math.PI/180)/1000, want=+e.target.value;
+  const off=camera.position.clone().sub(controls.target); off.multiplyScalar(want/Math.max(0.1,wkm));
+  if(off.length()>controls.maxDistance)off.setLength(controls.maxDistance);
+  camera.position.copy(controls.target).add(off); controls.update(); needsRender=true; scheduleLOD(); offEstimate()};
 $("offDetail").onchange=offEstimate;
 controls.addEventListener("change",()=>{if(!offSel.hidden){clearTimeout(offEstimate.t);offEstimate.t=setTimeout(offEstimate,150)}});
 let offBusy=false;
 $("offGo").onclick=async()=>{
-  const e=offEstimate(); if(!e||offBusy)return; offBusy=true; offSel.hidden=true; setSheet(true);
+  const e=offEstimate(); if(!e||offBusy)return; offBusy=true; offSel.hidden=true; controls.maxDistance=170; openPanel("offline");
   const st=$("offlineStatus"), {b,p}=e;
   if(!("caches" in window)){st.textContent="Dieser Browser kann keine Karten offline speichern.";offBusy=false;return}
   try{navigator.storage&&navigator.storage.persist&&await navigator.storage.persist()}catch(err){}
@@ -1680,6 +1696,13 @@ $("offGo").onclick=async()=>{
     const [lon,lat]=p.regions[i];
     st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert …`;
     try{await window.MMM_keepRegion(lon,lat,n=>{st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert … ${n} %`})}catch(err){failR++;console.warn(err)}
+  }
+  // names, paths, pistes and lifts of every area
+  for(let i=0;i<p.regions.length;i++){
+    const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
+    const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
+    st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
+    await overpass(q1,base+"/main4",[]); await overpass(q2,base+"/tracks4",[]);
   }
   const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
   const work=async()=>{while(k<urls.length){const u=urls[k++];
@@ -1708,6 +1731,68 @@ function renderAreas(){
 }
 renderAreas();
 
+// ---------- Ambient occlusion: share of open sky per cell (10 m), computed off the main thread ----------
+let aoReady=false;
+const AO_WORKER=`onmessage=e=>{const {dm,W,H,cellRow}=e.data,w=W>>1,h=H>>1,z=new Float32Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const a=2*y*W+2*x;z[y*w+x]=(dm[a]+dm[a+1]+dm[a+W]+dm[a+W+1])*0.025}
+  const dirs=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]], steps=[1,2,3,5,8,12,18,27,40,60], out=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){const cs=cellRow[2*y]*2;
+    for(let x=0;x<w;x++){const k=y*w+x,z0=z[k];let sum=0;
+      for(let d=0;d<8;d++){const dx=dirs[d][0],dy=dirs[d][1],l=Math.hypot(dx,dy)*cs;let mt=0;
+        for(let i=0;i<steps.length;i++){const st=steps[i],xx=x+dx*st,yy=y+dy*st;if(xx<0||yy<0||xx>=w||yy>=h)break;const t=(z[yy*w+xx]-z0)/(st*l);if(t>mt)mt=t}
+        sum+=1-Math.sin(Math.atan(mt))}
+      out[k]=Math.round(Math.max(0,Math.min(1,(sum/8-0.5)/0.5))*255)}}
+  postMessage(out,[out.buffer])}`;
+function computeAO(){
+  try{
+    const w=new Worker(URL.createObjectURL(new Blob([AO_WORKER],{type:"text/javascript"})));
+    const cellRow=new Float32Array(H); for(let y=0;y<H;y++)cellRow[y]=cellAt(y);
+    w.onmessage=e=>{const t=new THREE.DataTexture(e.data,W>>1,H>>1,THREE.LuminanceFormat);t.magFilter=t.minFilter=THREE.LinearFilter;t.generateMipmaps=false;t.needsUpdate=true;
+      shared.aoMap.value=t; aoReady=true; applyUniforms(); w.terminate()};
+    w.onerror=e=>{console.warn("Umgebungsschatten",e.message);w.terminate()};
+    w.postMessage({dm,W,H,cellRow});
+  }catch(e){console.warn(e)}
+}
+
+// ---------- Slope search: elevation, aspect, steepness ----------
+const hs={asp:[1,1,1,1,1,1,1,1],comps:[]};
+const searchData=new Uint8Array(N), searchTex=new THREE.DataTexture(searchData,W,H,THREE.LuminanceFormat);
+searchTex.magFilter=searchTex.minFilter=THREE.LinearFilter; searchTex.generateMipmaps=false; searchTex.needsUpdate=true; shared.searchMap.value=searchTex;
+function hsUI(){
+  const e0=+$("hsEMin").value,e1=+$("hsEMax").value,s0=+$("hsSMin").value,s1=+$("hsSMax").value;
+  $("hsEOut").textContent=`${fmt(Math.min(e0,e1))} bis ${fmt(Math.max(e0,e1))} m`; $("hsSOut").textContent=`${Math.min(s0,s1)} bis ${Math.max(s0,s1)}°`;
+  document.querySelectorAll("[data-hs]").forEach(b=>b.setAttribute("aria-pressed",hs.asp[+b.dataset.hs]?"true":"false"));
+}
+document.querySelectorAll("[data-hs]").forEach(b=>b.onclick=()=>{const a=+b.dataset.hs;hs.asp[a]=hs.asp[a]?0:1;hsUI()});
+["hsEMin","hsEMax","hsSMin","hsSMax"].forEach(id=>$(id).oninput=hsUI);
+function slopeSearch(){
+  let e0=+$("hsEMin").value,e1=+$("hsEMax").value,s0=+$("hsSMin").value,s1=+$("hsSMax").value; if(e0>e1)[e0,e1]=[e1,e0]; if(s0>s1)[s0,s1]=[s1,s0];
+  const m=searchData, asp=hs.asp;
+  for(let k=0;k<N;k++){const e=E(k);let ok=e>=e0&&e<=e1;if(ok){const sl=slopeAt(k);ok=sl>=s0&&sl<=s1&&asp[aspect[k]]===1}m[k]=ok?255:0}
+  // connected slopes, small specks dropped
+  const lab=new Int32Array(N).fill(-1), stack=new Int32Array(N), comps=[], minCells=(+$("hsMin").value)*1e4/(CELL*CELL);
+  for(let k=0;k<N;k++){if(!m[k]||lab[k]>=0)continue;
+    const id=comps.length;let sp=0;stack[sp++]=k;lab[k]=id;let n=0,sx=0,sy=0,emin=1e9,emax=-1e9,ss=0;const ac=[0,0,0,0,0,0,0,0];
+    while(sp){const c=stack[--sp],x=c%W,y=(c-x)/W;n++;sx+=x;sy+=y;const e=E(c);if(e<emin)emin=e;if(e>emax)emax=e;ss+=slopeAt(c);ac[aspect[c]]++;
+      if(x>0&&m[c-1]&&lab[c-1]<0){lab[c-1]=id;stack[sp++]=c-1} if(x<W-1&&m[c+1]&&lab[c+1]<0){lab[c+1]=id;stack[sp++]=c+1}
+      if(y>0&&m[c-W]&&lab[c-W]<0){lab[c-W]=id;stack[sp++]=c-W} if(y<H-1&&m[c+W]&&lab[c+W]<0){lab[c+W]=id;stack[sp++]=c+W}}
+    comps.push({n,cx:sx/n,cy:sy/n,emin,emax,smean:ss/n,asp:ac.indexOf(Math.max(...ac))});
+  }
+  for(let k=0;k<N;k++)if(m[k]&&comps[lab[k]].n<minCells)m[k]=0;
+  searchTex.needsUpdate=true; shared.showSearch.value=1; needsRender=true;
+  hs.comps=comps.filter(c=>c.n>=minCells).sort((a,b)=>b.n-a.n);
+  const ha=c=>c.n*CELL*CELL/1e4, tot=hs.comps.reduce((a,c)=>a+ha(c),0), box=$("hsResult");
+  if(!hs.comps.length){box.innerHTML='<p class="hint">Keine Hänge im geladenen Gebiet passen zu diesen Kriterien.</p>';return}
+  box.innerHTML=`<p class="hint" style="margin-bottom:6px">${fmt(hs.comps.length)} Hänge, zusammen ${fmt(Math.round(tot))} ha. Die größten:</p>`;
+  hs.comps.slice(0,12).forEach((c,i)=>{const d=document.createElement("div");d.className="offitem";
+    d.innerHTML=`<div><b>${fmt(ha(c),1)} ha · ${["N","NO","O","SO","S","SW","W","NW"][c.asp]}</b>${fmt(Math.round(c.emin))} bis ${fmt(Math.round(c.emax))} m · im Mittel ${fmt(Math.round(c.smean))}°</div><button class="btn">Zeigen</button>`;
+    d.querySelector("button").onclick=()=>{openPanel(null);lookAt(c.cx,c.cy,Math.max(12,Math.sqrt(c.n)*sc*3.5),"3d");lastMarker=[c.cx,c.cy];placeMarker(c.cx,c.cy)};
+    box.appendChild(d)});
+}
+$("hsRun").onclick=slopeSearch;
+$("hsClear").onclick=()=>{shared.showSearch.value=0;needsRender=true;$("hsResult").innerHTML=""};
+hsUI();
+
 // ---------- App install ----------
 let installEvt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
@@ -1715,14 +1800,39 @@ $("installBtn").onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(e=>console.warn("SW",e))}
 
 // ---------- Collapsible panel ----------
-const sheetBody=$("sheetBody"), sheetToggle=$("sheetToggle");
-function setSheet(open){
-  sheetBody.hidden=!open; sheetToggle.setAttribute("aria-expanded",open);
-  sheetToggle.setAttribute("aria-label",open?"Ebenen und Einstellungen zuklappen":"Ebenen und Einstellungen aufklappen");
-  if(open&&route)drawProfile();
+// ---------- Panels, tab bar, quick chips, round buttons ----------
+const panel=$("panel"), TAB_TITLES={map:"Karte",plan:"Tour planen",slopes:"Hangsuche",offline:"Offline-Karten",info:"Info"};
+let curTab=null;
+function openPanel(tab){
+  curTab=tab||null; panel.hidden=!curTab;
+  if(curTab){$("panelTitle").textContent=TAB_TITLES[curTab];document.querySelectorAll("#panel [data-tab]").forEach(x=>x.hidden=x.dataset.tab!==curTab);
+    panel.querySelector(".panel-body").scrollTop=0; if(curTab==="plan"&&route)drawProfile(); $("pointCard").hidden=true}
+  document.querySelectorAll(".tabbar [data-open]").forEach(b=>b.setAttribute("aria-current",b.dataset.open===curTab?"page":"false"));
 }
-sheetToggle.onclick=e=>{e.stopPropagation();setSheet(sheetBody.hidden)};
-$("sheetBar").addEventListener("click",e=>{if(e.target.closest("label,input,button"))return;setSheet(sheetBody.hidden)});
+function setSheet(open){openPanel(open?(curTab||"map"):null)}
+document.querySelectorAll(".tabbar [data-open]").forEach(b=>b.onclick=()=>openPanel(curTab===b.dataset.open?null:b.dataset.open));
+$("panelClose").onclick=()=>openPanel(null);
+$("infoBtn").onclick=()=>openPanel("info");
+$("rbLayers").onclick=()=>openPanel(curTab==="map"?null:"map");
+$("qLayers").onclick=()=>openPanel(curTab==="map"?null:"map");
+$("qSlopes").onclick=()=>openPanel(curTab==="slopes"?null:"slopes");
+$("tbPlan").onclick=()=>openPanel("plan");
+$("tbOffline").onclick=()=>{openPanel(null);openOffSel()};
+$("rbNorth").onclick=()=>$("north").click();
+$("pointClose").onclick=()=>{$("pointCard").hidden=true;pinEl.hidden=true;lastMarker=null;needsRender=true};
+const is2D=()=>{const o=camera.position.clone().sub(controls.target);return Math.hypot(o.x,o.z)<o.y*0.05};
+$("rbView").onclick=()=>{(is2D()?$("view3d"):$("view2d")).click()};
+// quick chips mirror the layer switches in the map panel
+document.querySelectorAll(".qchip[data-proxy]").forEach(q=>{const t=$(q.dataset.proxy);
+  const sync=()=>q.setAttribute("aria-pressed",t.getAttribute("aria-pressed"));
+  q.onclick=()=>t.click(); new MutationObserver(sync).observe(t,{attributes:true,attributeFilter:["aria-pressed"]}); sync()});
+let lastHeading=null;
+function updateCompass(){
+  const o=camera.position.clone().sub(controls.target), a=Math.atan2(o.x,o.z)*180/Math.PI, v=is2D()?"3D":"2D";
+  if(lastHeading===null||Math.abs(a-lastHeading)>0.5){$("needle").style.transform=`rotate(${a.toFixed(1)}deg)`;lastHeading=a}
+  if($("rbView").textContent!==v)$("rbView").textContent=v;
+  $("fit").hidden=!route;
+}
 
 // ---------- Places: search and loading another area of Tirol ----------
 function goTo(lon,lat,name){saveState();const [sl,sb]=snap(lon,lat);location.href="./?at="+sl+","+sb+"&t="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
@@ -1734,8 +1844,8 @@ function prefetch(lon,lat,onBytes){const k=lon+","+lat; if(!prefetched.has(k))pr
 let searchTimer=null, searchSeq=0;
 async function runSearch(q){
   const out=$("searchResults"), my=++searchSeq;
-  if(q.trim().length<2){out.innerHTML="";return}
-  out.innerHTML='<p class="hint">Suche …</p>';
+  if(q.trim().length<2){out.innerHTML="";out.hidden=true;return}
+  out.hidden=false; openPanel(null); out.innerHTML='<p class="hint">Suche …</p>';
   try{
     const vb="5.0,48.4,16.9,43.6";
     const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=de&bounded=1&viewbox="+vb+"&q="+encodeURIComponent(q));
@@ -1751,7 +1861,6 @@ async function runSearch(q){
 // Nominatim usage policy forbids search-as-you-type, so we only search on Enter
 $("search").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();runSearch(e.target.value)}});
 $("search").addEventListener("search",e=>runSearch(e.target.value));
-$("searchBtn").onclick=e=>{e.stopPropagation();setSheet(true);$("search").focus()};
 $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 // offer to load the area in the middle of the screen once it is far from the loaded area
 // panning towards the edge loads the next area automatically: data is fetched in the background,
@@ -1798,7 +1907,7 @@ function navigateKeepView(lon,lat,tlon,tlat){
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
 function syncUI(){
-  const chips={lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
+  const chips={lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
   $("snowLvl").value=state.snow; $("wind").value=state.wind; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
@@ -1832,6 +1941,7 @@ if(REG){
 applyUniforms();
 loadEl.hidden=true;
 setTimeout(loadOsm,1500);
+computeAO();
 (async()=>{
   if(state.winter){await computeWinter(true);applyUniforms()}
   const sn=$("snap"); if(!sn)return;
@@ -1843,7 +1953,7 @@ setTimeout(loadOsm,1500);
 controls.addEventListener("change",()=>{needsRender=true;scheduleLOD();checkHere()});
 (function loop(){
   controls.update();
-  if(needsRender){needsRender=false;shared.camPos.value.copy(camera.position);renderer.render(scene,camera);updateLabels();drawGlobe()}
+  if(needsRender){needsRender=false;shared.camPos.value.copy(camera.position);renderer.render(scene,camera);updateLabels();drawGlobe();updateCompass()}
   requestAnimationFrame(loop);
 })();
 })().catch(err=>{const l=document.getElementById("loading");if(l){l.hidden=false;l.textContent="Fehler beim Laden: "+err.message}console.error(err)});

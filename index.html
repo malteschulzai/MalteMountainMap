@@ -144,10 +144,61 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 @media (min-width:900px){
-  .app{--bar:0px}
+  .app{}
   .sheet{left:auto;bottom:auto;top:12px;right:max(12px,env(safe-area-inset-right,0px));width:380px;max-height:calc(100% - 130px);border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.2);padding-bottom:0}
   .sheet-bar{min-height:60px}
-  .map .globe{bottom:14px} .pad{bottom:10px} .status{bottom:12px}
+}
+
+/* ---- app layout like FATMAP: search on top, quick chips, round buttons right, tab bar below ---- */
+.app{--tab:62px;--bar:calc(var(--tab) + env(safe-area-inset-bottom,0px))}
+.card{background:var(--panel);color:var(--ink);border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+.topbar{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));top:max(10px,env(safe-area-inset-top,0px));z-index:5;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.topbar>*{pointer-events:auto}
+.searchbox{display:flex;align-items:center;gap:4px;background:var(--panel);border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.18);padding:5px 6px 5px 7px;min-width:0}
+.searchbox .logo{width:34px;height:34px}
+.searchbox .search{flex:1;min-width:0;border:0;background:transparent;padding:8px 6px;font-size:16px}
+.searchbox .search:focus-visible{outline:none}
+.sb{flex:none;width:42px;height:42px;border:0;border-radius:10px;background:var(--chip);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.sb svg{width:22px;height:22px}
+.results.card{padding:6px;max-height:50vh;overflow:auto;margin-top:0}
+.chipbar{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;margin-inline:-2px}
+.chipbar::-webkit-scrollbar{display:none}
+.qchip{flex:none;display:flex;align-items:center;gap:6px;font:600 14px/1 var(--font-body);background:var(--panel);color:var(--ink);border:0;border-radius:999px;padding:10px 14px;box-shadow:0 1px 6px rgba(0,0,0,.2);cursor:pointer;white-space:nowrap}
+.qchip svg{width:16px;height:16px}
+.qchip[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.rcol{position:absolute;right:max(12px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:10px;align-items:center;z-index:3}
+.rcol.top{top:calc(max(10px,env(safe-area-inset-top,0px)) + 112px)}
+.rcol.bottom{bottom:calc(var(--bar) + 14px)}
+.rb{width:48px;height:48px;border-radius:50%;border:0;background:var(--panel);color:var(--ink);display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.22);cursor:pointer}
+.rb svg{width:24px;height:24px}
+.rb.txt{font:700 17px/1 var(--font-display);letter-spacing:.03em}
+.rb.loc{width:56px;height:56px;color:#1a73e8}
+.rb.loc[aria-pressed="true"]{background:#1a73e8;color:#fff}
+#needle{transition:transform .15s linear}
+.rcol .globe{position:static;width:52px;height:52px;border-radius:50%;touch-action:none;cursor:grab;filter:drop-shadow(0 1px 3px rgba(0,0,0,.3))}
+.pad{right:calc(max(12px,env(safe-area-inset-right,0px)) + 64px);bottom:calc(var(--bar) + 90px)}
+.status{bottom:calc(var(--bar) + 14px);left:calc(max(12px,env(safe-area-inset-left,0px)) + 40px);max-width:calc(100% - 150px)}
+.ibtn{position:absolute;left:max(12px,env(safe-area-inset-left,0px));bottom:calc(var(--bar) + 10px);width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:#3b4640;font:700 15px/1 Georgia,serif;box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer;z-index:2}
+.here{top:calc(max(10px,env(safe-area-inset-top,0px)) + 112px)}
+.map.snapping .loading{top:calc(max(10px,env(safe-area-inset-top,0px)) + 112px)}
+.pcard{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:calc(max(12px,env(safe-area-inset-right,0px)) + 64px);bottom:calc(var(--bar) + 54px);padding:12px 40px 12px 14px;z-index:4;max-width:460px}
+.xbtn{position:absolute;right:8px;top:8px;width:32px;height:32px;border-radius:50%;border:0;background:var(--chip);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.xbtn svg{width:18px;height:18px}
+.panel{position:absolute;left:0;right:0;bottom:var(--bar);z-index:7;max-height:66%;display:flex;flex-direction:column;background:var(--panel);border-radius:18px 18px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.22)}
+.panel-head{position:relative;padding:14px 16px 6px}
+.panel-head h2{margin:0;font:700 20px/1.1 var(--font-display);letter-spacing:.03em;text-transform:uppercase}
+.panel-body{overflow-y:auto;overscroll-behavior:contain;min-height:0}
+.tabbar{position:absolute;left:0;right:0;bottom:0;z-index:8;height:var(--bar);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box;display:grid;grid-template-columns:repeat(5,1fr);background:var(--panel);border-top:1px solid var(--line)}
+.tabbar button{border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 12px/1 var(--font-body);cursor:pointer}
+.tabbar button svg{width:24px;height:24px}
+.tabbar button[aria-current="page"]{color:#1a73e8}
+.offbar{bottom:calc(var(--bar) + 12px)}
+.offsel{z-index:9}
+@media (min-width:900px){
+  .app{--tab:62px}
+  .topbar{right:auto;width:440px}
+  .panel{left:max(12px,env(safe-area-inset-left,0px));right:auto;width:400px;top:calc(max(10px,env(safe-area-inset-top,0px)) + 112px);bottom:calc(var(--bar) + 12px);max-height:none;border-radius:16px}
+  .pcard{right:auto;width:400px}
 }
 @media (prefers-reduced-motion:reduce){.toggle svg{transition:none}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
@@ -162,7 +213,18 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
     <script>try{var q=new URLSearchParams(location.search),s=sessionStorage.getItem("mmm-snap");sessionStorage.removeItem("mmm-snap");if(s&&q.has("t")){var i=document.createElement("img");i.className="snap";i.id="snap";i.alt="";i.src=s;var m=document.getElementById("map");m.appendChild(i);m.classList.add("snapping")}}catch(e){}</script>
     <div class="labels" id="labels"><div class="pin" id="pin" hidden><div class="pin-label" id="pinLabel"></div><svg viewBox="0 0 14 34" aria-hidden="true"><path d="M7 12v20" stroke="#5b6166" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="7" r="5.6" fill="#e0242a" stroke="#8c0d12" stroke-width="1"/><circle cx="5.2" cy="5.2" r="1.7" fill="#fff" opacity=".75"/></svg></div><div class="rdot" id="rStart" hidden></div><div class="rdot end" id="rEnd" hidden></div><div class="pmark" id="pStart" hidden>Start</div><div class="pmark goal" id="pGoal" hidden>Ziel</div><div class="me" id="me" hidden></div></div>
     <div class="status" id="status">Luftbild: basemap.at</div>
-    <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
+    <button class="ibtn" id="infoBtn" aria-label="Info und Quellen">i</button>
+
+    <div class="rcol top">
+      <button class="rb" id="rbLayers" aria-label="Ebenen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
+      <button class="rb" id="rbNorth" aria-label="Norden oben"><svg viewBox="0 0 24 24" id="needle"><path d="M12 3l4 9h-8z" fill="#e2412b"/><path d="M12 21l-4-9h8z" fill="#1b2420"/></svg></button>
+    </div>
+    <div class="rcol bottom">
+      <button class="rb" id="fit" aria-label="Auf Spur zoomen" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button class="rb txt" id="rbView" aria-label="Zwischen 3D und Draufsicht wechseln">2D</button>
+      <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
+      <button class="rb loc" id="locate" aria-label="Mein Standort" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+    </div>
     <div class="pad" id="pad" hidden>
       <button class="pbtn" style="grid-area:u" data-dir="up" aria-label="Steiler von oben">▲</button>
       <button class="pbtn" style="grid-area:l" data-dir="left" aria-label="Nach links drehen">◀</button>
@@ -170,28 +232,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <button class="pbtn" style="grid-area:r" data-dir="right" aria-label="Nach rechts drehen">▶</button>
       <button class="pbtn" style="grid-area:d" data-dir="down" aria-label="Flacher, mehr Horizont">▼</button>
     </div>
-    <div class="exag"><label for="exag">Überhöhung</label><input type="range" id="exag" min="1" max="1.6" step="0.1" value="1"><output id="exagOut">1,0×</output></div>
-    <div class="tools">
-      <button class="tool" id="view3d" title="Schräge 3D-Ansicht" aria-label="3D-Ansicht">3D</button>
-      <button class="tool" id="view2d" title="Von oben, Norden oben" aria-label="Draufsicht">2D</button>
-      <button class="tool" id="fit" title="Auf Spur zoomen" aria-label="Auf Spur zoomen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-      <button class="tool" id="locate" title="Mein Standort" aria-label="Mein Standort" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
-    </div>
+    <button hidden id="view3d"></button><button hidden id="view2d"></button>
     <button class="here" id="loadHere" hidden>Diesen Bereich laden</button>
     <div class="drop" id="drop" hidden>GPX-Datei hier ablegen</div>
-    <div class="offsel" id="offSel" hidden>
-      <div class="offframe" id="offFrame"></div>
-      <div class="offbar">
-        <div><b>Bereich für offline wählen</b><div class="hint" id="offInfo">Schiebe und zoome die Karte, bis der gewünschte Bereich im Rahmen liegt.</div></div>
-        <div class="row"><select id="offDetail" aria-label="Schärfe des Luftbilds"><option value="16">Luftbild Standard</option><option value="17">Luftbild scharf</option></select>
-          <button class="btn" id="offCancel">Abbrechen</button><button class="btn primary" id="offGo">Herunterladen</button></div>
-      </div>
-    </div>
-  </div>
 
-  <aside class="sheet" aria-label="Ebenen und Einstellungen">
-    <div class="sheet-bar" id="sheetBar">
-      <svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="lgSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#070f24"/><stop offset="1" stop-color="#14264d"/></linearGradient><clipPath id="lgR"><rect width="64" height="64" rx="14"/></clipPath></defs><g clip-path="url(#lgR)"><rect width="64" height="64" fill="url(#lgSky)"/><g transform="translate(4.56 5.57) scale(0.098)">
+    <div class="topbar">
+      <div class="searchbox">
+        <svg class="logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="lgSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#070f24"/><stop offset="1" stop-color="#14264d"/></linearGradient><clipPath id="lgR"><rect width="64" height="64" rx="14"/></clipPath></defs><g clip-path="url(#lgR)"><rect width="64" height="64" fill="url(#lgSky)"/><g transform="translate(4.56 5.57) scale(0.098)">
 <polygon points="-200.0,420.0 -120.0,330.0 -40.0,275.0 0.0,262.0 40.0,248.0 70.0,232.0 100.0,195.0 130.0,152.0 160.0,110.0 190.0,80.0 215.0,60.0 240.0,44.0 258.0,32.0 266.0,30.0 280.0,36.0 306.0,48.0 340.0,80.0 380.0,128.0 420.0,186.0 455.0,236.0 492.0,276.0 540.0,312.0 620.0,350.0 700.0,380.0 700.0,900.0 -200.0,900.0" fill="#f3f7fb"/>
 <path d="M-200 560 Q-60 470 60 560 Q20 680 -200 720Z" fill="#dbe5f0"/>
 <path d="M102.0 213.3Q55.2 366.6 -4.2 520.0L4.2 520.0Q59.4 366.6 103.2 213.3Z M139.2 160.3Q103.8 400.1 55.8 640.0L64.2 640.0Q108.0 400.1 140.4 160.3Z M170.2 121.2Q144.3 340.6 105.8 560.0L114.2 560.0Q148.5 340.6 171.4 121.2Z M195.0 97.5Q176.7 393.8 145.8 690.0L154.2 690.0Q180.9 393.8 196.2 97.5Z M226.0 74.6Q217.2 342.3 195.8 610.0L204.2 610.0Q221.4 342.3 227.2 74.6Z M250.8 58.4Q249.6 379.2 235.8 700.0L244.2 700.0Q253.8 379.2 252.0 58.4Z M278.7 57.7Q286.0 348.9 280.8 640.0L289.2 640.0Q290.2 348.9 279.9 57.7Z M306.6 93.8Q322.5 391.9 325.8 690.0L334.2 690.0Q326.7 391.9 307.8 93.8Z M334.5 145.5Q358.9 382.8 370.8 620.0L379.2 620.0Q363.2 382.8 335.7 145.5Z M362.4 195.0Q395.4 397.5 415.8 600.0L424.2 600.0Q399.6 397.5 363.6 195.0Z M393.4 244.1Q435.9 402.1 465.8 560.0L474.2 560.0Q440.1 402.1 394.6 244.1Z" fill="#7f98b6" opacity="0.75"/>
@@ -199,31 +246,48 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <polygon points="306.0,48.0 340.0,80.0 380.0,128.0 420.0,186.0 455.0,236.0 492.0,276.0 540.0,312.0 620.0,350.0 700.0,380.0 700.0,900.0 700.0,450.0 620.0,420.0 540.0,375.0 492.0,335.0 450.0,290.0 392.0,228.0 350.0,160.0 316.0,95.0 290.0,50.0" fill="#93a9c4"/>
 <path d="M270.0 38.0 L271.2 38.6 L272.7 39.3 L274.4 40.1 L276.3 40.9 L278.4 41.8 L280.7 42.8 L283.0 43.8 L285.5 44.9 L288.1 46.0 L290.8 47.2 L293.5 48.4 L296.2 49.6 L298.9 50.9 L301.7 52.2 L304.3 53.5 L307.0 54.9 L309.5 56.3 L311.9 57.6 L314.3 59.0 L316.4 60.4 L318.4 61.8 L320.2 63.2 L321.8 64.6 L323.2 66.0 L324.3 67.4 L325.2 68.8 L325.9 70.3 L326.5 71.8 L326.8 73.3 L327.1 74.8 L327.2 76.4 L327.2 77.9 L327.2 79.5 L327.0 81.1 L326.9 82.7 L326.7 84.4 L326.5 86.0 L326.3 87.7 L326.1 89.3 L326.0 91.0 L326.0 92.6 L326.1 94.3 L326.2 95.9 L326.5 97.6 L327.0 99.2 L327.6 100.8 L328.4 102.4 L329.4 104.0 L330.6 105.6 L332.0 107.2 L333.6 108.8 L335.3 110.4 L337.2 112.0 L339.3 113.5 L341.4 115.1 L343.6 116.7 L345.9 118.3 L348.3 119.9 L350.7 121.5 L353.1 123.1 L355.5 124.7 L357.8 126.3 L360.2 127.9 L362.4 129.5 L364.6 131.1 L366.7 132.6 L368.7 134.2 L370.5 135.8 L372.2 137.3 L373.7 138.9 L375.0 140.5 L376.1 142.0 L377.1 143.5 L377.9 145.0 L378.6 146.5 L379.2 147.9 L379.7 149.3 L380.1 150.7 L380.5 152.1 L380.7 153.5 L380.9 154.9 L381.0 156.2 L381.0 157.6 L380.9 159.0 L380.8 160.4 L380.7 161.8 L380.4 163.3 L380.2 164.7 L379.9 166.2 L379.5 167.8 L379.1 169.4 L378.7 171.0 L378.2 172.7 L377.8 174.4 L377.3 176.2 L376.8 178.0 L376.3 179.9 L375.6 181.9 L375.0 184.1 L374.2 186.2 L373.4 188.5 L372.5 190.8 L371.6 193.2 L370.6 195.6 L369.6 198.0 L368.5 200.4 L367.4 202.9 L366.3 205.4 L365.2 207.8 L364.0 210.3 L362.8 212.7 L361.6 215.1 L360.4 217.5 L359.2 219.8 L357.9 222.0 L356.7 224.2 L355.5 226.3 L354.3 228.3 L353.2 230.2 L352.0 232.0 L350.8 233.7 L349.5 235.3 L348.1 236.7 L346.7 238.1 L345.1 239.4 L343.6 240.7 L342.0 241.8 L340.3 243.0 L338.7 244.0 L337.1 245.1 L335.4 246.1 L333.9 247.1 L332.3 248.1 L330.8 249.2 L329.4 250.2 L328.1 251.3 L326.8 252.4 L325.7 253.5 L324.7 254.7 L323.8 256.0 L323.1 257.4 L322.6 258.8 L322.2 260.3 L322.0 262.0 L322.1 263.7 L322.4 265.6 L323.0 267.4 L323.8 269.4 L324.9 271.4 L326.1 273.5 L327.4 275.6 L328.9 277.7 L330.5 279.9 L332.1 282.1 L333.8 284.4 L335.5 286.6 L337.2 288.9 L338.9 291.2 L340.5 293.5 L342.0 295.9 L343.4 298.2 L344.6 300.5 L345.7 302.8 L346.6 305.1 L347.2 307.3 L347.6 309.6 L347.8 311.8 L347.6 314.0 L347.1 316.2 L346.2 318.3 L345.1 320.5 L343.7 322.7 L342.1 324.8 L340.2 327.0 L338.2 329.2 L336.0 331.3 L333.7 333.5 L331.3 335.7 L328.9 337.8 L326.4 340.0 L324.0 342.2 L321.5 344.3 L319.2 346.5 L316.9 348.7 L314.8 350.8 L312.8 353.0 L310.9 355.2 L309.3 357.3 L308.0 359.5 L306.9 361.7 L306.1 363.8 L305.7 366.0 L305.6 368.2 L305.9 370.3 L306.4 372.5 L307.3 374.7 L308.4 376.8 L309.7 379.0 L311.2 381.2 L312.9 383.3 L314.7 385.5 L316.6 387.7 L318.5 389.8 L320.5 392.0 L322.4 394.2 L324.3 396.3 L326.2 398.5 L328.0 400.7 L329.6 402.8 L331.1 405.0 L332.4 407.2 L333.4 409.3 L334.2 411.5 L334.7 413.7 L334.9 415.8 L334.8 418.0 L334.3 420.2 L333.4 422.3 L332.1 424.5 L330.6 426.7 L328.8 428.8 L326.8 431.0 L324.6 433.2 L322.3 435.3 L319.8 437.5 L317.2 439.7 L314.5 441.8 L311.9 444.0 L309.2 446.2 L306.5 448.3 L304.0 450.5 L301.5 452.7 L299.2 454.8 L297.0 457.0 L295.0 459.2 L293.3 461.3 L291.8 463.5 L290.7 465.7 L289.8 467.8 L289.4 470.0 L289.3 472.2 L289.6 474.3 L290.3 476.5 L291.2 478.7 L292.5 480.8 L294.0 483.0 L295.6 485.2 L297.5 487.3 L299.5 489.5 L301.6 491.7 L303.7 493.8 L305.9 496.0 L308.1 498.2 L310.2 500.3 L312.3 502.5 L314.3 504.7 L316.1 506.8 L317.7 509.0 L319.2 511.2 L320.4 513.3 L321.3 515.5 L321.9 517.7 L322.1 519.8 L322.0 522.0 L321.4 524.2 L320.5 526.3 L319.2 528.5 L317.6 530.7 L315.6 532.8 L313.5 535.0 L311.1 537.2 L308.6 539.3 L305.9 541.5 L303.1 543.7 L300.2 545.8 L297.3 548.0 L294.4 550.2 L291.5 552.3 L288.8 554.5 L286.1 556.7 L283.6 558.8 L281.2 561.0 L279.1 563.2 L277.2 565.3 L275.7 567.5 L274.4 569.7 L273.5 571.8 L273.1 574.0 L273.0 576.2 L273.4 578.3 L274.1 580.5 L275.2 582.7 L276.6 584.8 L278.2 587.0 L280.0 589.2 L282.1 591.3 L284.3 593.5 L286.6 595.7 L288.9 597.8 L291.3 600.0 L293.7 602.2 L296.1 604.3 L298.4 606.5 L300.5 608.7 L302.6 610.8 L304.4 613.0 L306.0 615.2 L307.3 617.3 L308.3 619.5 L309.0 621.7 L309.3 623.8 L309.2 626.0 L308.6 628.2 L307.7 630.5 L306.5 632.9 L304.9 635.3 L303.1 637.7 L301.1 640.2 L298.8 642.7 L296.3 645.3 L293.7 647.8 L290.9 650.3 L288.1 652.8 L285.2 655.2 L282.3 657.7 L279.4 660.0 L276.5 662.3 L273.6 664.5 L270.9 666.6 L268.3 668.7 L265.8 670.6 L263.5 672.3 L261.4 674.0 L259.6 675.5 L258.0 676.8 L256.8 678.0" fill="none" stroke="#e8202a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </g></g></svg>
-      <div class="brand">
-        <h1>Linefinder</h1>
-        <span id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</span>
+        <label class="sr" for="search">Ort suchen</label>
+        <input class="search" id="search" type="search" placeholder="Gipfel, Ort oder Hütte suchen" autocomplete="off" enterkeyhint="search">
+        <button class="sb" id="tbOffline" aria-label="Offline-Karten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v5M12.5 14.5L15 17l2.5-2.5M15 11v6"/></svg></button>
+        <button class="sb" id="tbPlan" aria-label="Tour planen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/><path d="M4 22h16"/></svg></button>
       </div>
-      <button class="toggle" id="searchBtn" aria-label="Ort in Tirol suchen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.6-4.6"/></svg></button>
-      <label class="btn primary" for="gpx">GPX</label>
-      <input class="sr" type="file" id="gpx">
-      <button class="toggle" id="sheetToggle" aria-expanded="false" aria-controls="sheetBody" aria-label="Ebenen und Einstellungen aufklappen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+      <div class="results card" id="searchResults" hidden></div>
+      <div class="chipbar" role="group" aria-label="Schnellauswahl">
+        <button class="qchip" id="qLayers">Ebenen <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="qchip" data-proxy="lyWinter">Winter</button>
+        <button class="qchip" data-proxy="lySlope">Hangneigung</button>
+        <button class="qchip" id="qSlopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg> Hangsuche</button>
+        <button class="qchip" data-proxy="lyAspect">Exposition</button>
+        <button class="qchip" data-proxy="lyPaths">Wege</button>
+        <button class="qchip" data-proxy="lyAo">Schatten</button>
+      </div>
     </div>
-    <div class="sheet-body" id="sheetBody" hidden>
-    <div class="sheet-inner">
-      <div class="sec">
-        <label class="sr" for="search">Ort in Tirol suchen</label>
-        <input class="search" id="search" type="search" placeholder="Gipfel, Ort oder Hütte, dann Enter" autocomplete="off" enterkeyhint="search">
-        <div class="results" id="searchResults"></div>
-        <button class="btn" id="goNordkette" style="margin-top:8px" hidden>Zurück zur Nordkette</button>
+
+    <div class="pcard card" id="pointCard" hidden>
+      <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div id="pointInfo"></div>
+    </div>
+    <div class="offsel" id="offSel" hidden>
+      <div class="offframe" id="offFrame"></div>
+      <div class="offbar">
+        <div><b>Bereich für offline wählen</b><div class="hint" id="offInfo">Schiebe und zoome die Karte, bis der gewünschte Bereich im Rahmen liegt.</div></div>
+        <div class="rng"><label for="offSize" class="hint">Größe</label><input type="range" id="offSize" min="2" max="45" step="1" value="8"><output id="offSizeOut">8 km</output></div>
+        <div class="row"><select id="offDetail" aria-label="Schärfe des Luftbilds"><option value="16">Luftbild Standard</option><option value="17">Luftbild scharf</option></select>
+          <button class="btn" id="offCancel">Abbrechen</button><button class="btn primary" id="offGo">Herunterladen</button></div>
       </div>
-      <div class="sec">
-        <div class="row" role="group" aria-label="Kartengrundlage">
+    </div>
+  </div>
+
+  <section class="panel" id="panel" hidden aria-labelledby="panelTitle">
+    <div class="panel-head"><h2 id="panelTitle">Karte</h2><button class="xbtn" id="panelClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="panel-body"><div class="sheet-inner">
+      <div class="sec" data-tab="map">
+        <div class="row" role="group" aria-label="Kartengrundlage" style="margin-bottom:10px">
           <button class="chip" id="bmOrtho" aria-pressed="true">Luftbild</button>
           <button class="chip" id="bmRelief" aria-pressed="false">Relief</button>
         </div>
-      </div>
-      <div class="sec">
         <div class="row" role="group" aria-label="Ebenen">
+          <button class="chip" id="lyAo" aria-pressed="true">Umgebungsschatten</button>
           <button class="chip" id="lySlope" aria-pressed="false">Hangneigung</button>
           <button class="chip" id="lyAspect" aria-pressed="false">Exposition</button>
           <button class="chip" id="lyTrees" aria-pressed="true">3D-Bäume</button>
@@ -235,8 +299,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <button class="chip" id="lyPaths" aria-pressed="false">Wege</button>
           <button class="chip" id="lySnowgrid" aria-pressed="false">SNOWGRID</button>
         </div>
-      </div>
-      <div class="legend" id="legend" hidden>
+        <div class="legend" id="legend" hidden>
         <span><i style="background:var(--s30)"></i>30–35°</span>
         <span><i style="background:var(--s35)"></i>35–40°</span>
         <span><i style="background:var(--s40)"></i>40–45°</span>
@@ -254,7 +317,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <span><i style="background:#e04229"></i>S</span><span><i style="background:#db61a8"></i>SW</span><span><i style="background:#8c54c7"></i>W</span><span><i style="background:#38388c"></i>NW</span>
       </div>
 
-      <div class="sec" id="sgSec" hidden>
+      
+        <div class="wctl" style="margin-top:10px"><label for="exag">Überhöhung</label><div class="rng"><input type="range" id="exag" min="1" max="1.6" step="0.1" value="1"><output id="exagOut">1,0×</output></div></div>
+      </div>
+      <div data-tab="map"><div class="sec" id="sgSec" hidden>
         <h2>SNOWGRID Schneehöhe</h2>
         <div class="wctl"><label for="sgDate">Tag</label><input type="date" id="sgDate" class="search" style="padding:7px 8px"></div>
         <div class="legend">
@@ -263,9 +329,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         </div>
         <p class="hint" id="sgStatus" aria-live="polite"></p>
         <p class="hint">Modellierte Schneehöhe von GeoSphere Austria auf einem 1-km-Raster, täglich aktualisiert. Ein Wert gilt für die ganze Zelle, Grate und Mulden unterscheidet SNOWGRID nicht. Daten: GeoSphere Austria, CC BY 4.0.</p>
-      </div>
-
-      <div class="sec" id="winterSec">
+      </div></div>
+      <div data-tab="map"><div class="sec" id="winterSec">
         <h2>Winter</h2>
         <div class="wctl">
           <label for="snowLvl">Schneemenge</label>
@@ -278,14 +343,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <select id="wind"><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option selected>NW</option></select>
         </div>
         <p class="hint">Modellierte Schneeverteilung aus dem Gelände: Rinnen, Mulden und Leehänge bekommen mehr, Grate, steile Felsen und Südhänge weniger. Ost- und Westhänge liegen zwischen den beiden Schneegrenzen. Keine gemessene Schneehöhe.</p>
-      </div>
+      </div></div>
 
-      <div class="sec">
-        <h2>Punkt</h2>
-        <div id="pointInfo"><p class="hint">Tippe ins Gelände, um Höhe, Hangneigung und Exposition an dieser Stelle zu sehen.</p></div>
-      </div>
-
-      <div class="sec" id="planSec">
+      <div data-tab="plan"><div class="sec" id="planSec">
         <h2>Tour planen</h2>
         <p class="hint">Setze Start und Ziel, dann sucht die App den Weg mit möglichst wenig Lawinengelände und angenehmer Steilheit. Gib dazu die Gefahrenstufe und die Kernzone aus dem Lawinenlagebericht an.</p>
         <div class="row" style="margin:8px 0"><button class="btn primary" id="planPick">Start und Ziel setzen</button><button class="btn" id="planSwap">Tauschen</button></div>
@@ -304,16 +364,33 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         </div>
         <div class="row"><button class="btn" id="planRun">Route berechnen</button></div>
         <p class="hint" id="planStatus" aria-live="polite"></p>
-      </div>
-
-      <div class="sec" id="routeSec">
+      </div></div>
+      <div data-tab="plan"><div class="sec" id="routeSec">
         <h2>Spur</h2>
         <div id="routeInfo"></div>
       </div>
+        <div class="row" style="margin-top:8px"><label class="btn" for="gpx">GPX-Datei laden</label><input class="sr" type="file" id="gpx"></div>
+      </div>
 
-      <div class="sec">
-        <h2>Offline-Karten</h2>
-        <p class="hint">Wähle in der Draufsicht einen Bereich. Gelände, Wald und Luftbild werden auf dem Gerät gespeichert, danach funktioniert die Karte dort ohne Empfang.</p>
+      <div class="sec" data-tab="slopes">
+        <p class="hint">Markiert im geladenen Gebiet alle Hänge, die zu Höhe, Exposition und Steilheit passen.</p>
+        <div class="wctl" style="margin-top:8px">
+          <label for="hsEMin">Höhe von</label><input type="range" id="hsEMin" min="500" max="4500" step="50" value="1800">
+          <label for="hsEMax">bis</label><input type="range" id="hsEMax" min="500" max="4500" step="50" value="2800">
+          <span></span><output id="hsEOut" style="font-weight:600;color:var(--ink)"></output>
+          <span>Exposition</span><div class="aspects" role="group" aria-label="Expositionen"><button class="chip" data-hs="7" aria-pressed="true">NW</button><button class="chip" data-hs="0" aria-pressed="true">N</button><button class="chip" data-hs="1" aria-pressed="true">NO</button><button class="chip" data-hs="2" aria-pressed="true">O</button><button class="chip" data-hs="6" aria-pressed="true">W</button><button class="chip" data-hs="5" aria-pressed="true">SW</button><button class="chip" data-hs="4" aria-pressed="true">S</button><button class="chip" data-hs="3" aria-pressed="true">SO</button></div>
+          <label for="hsSMin">Steilheit von</label><input type="range" id="hsSMin" min="0" max="60" step="1" value="30">
+          <label for="hsSMax">bis</label><input type="range" id="hsSMax" min="0" max="60" step="1" value="40">
+          <span></span><output id="hsSOut" style="font-weight:600;color:var(--ink)"></output>
+          <label for="hsMin">Mindestgröße</label>
+          <select id="hsMin"><option value="0.25">0,25 ha</option><option value="1" selected>1 ha</option><option value="3">3 ha</option><option value="10">10 ha</option></select>
+        </div>
+        <div class="row"><button class="btn primary" id="hsRun">Hänge suchen</button><button class="btn" id="hsClear">Markierung entfernen</button></div>
+        <div id="hsResult" style="margin-top:8px"></div>
+      </div>
+
+      <div class="sec" data-tab="offline">
+        <p class="hint">Wähle in der Draufsicht einen Bereich. Gelände, Wald, Luftbild, Namen, Wege und Pisten werden auf dem Gerät gespeichert. Hangneigung, Exposition, Winter-Modell, Schatten, Hangsuche und Tourenplanung funktionieren dort dann auch ohne Empfang.</p>
         <div class="row" style="margin-top:8px">
           <button class="btn primary" id="offPick">Bereich auswählen</button>
           <button class="btn" id="installBtn" hidden>Als App installieren</button>
@@ -322,10 +399,22 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p class="hint" id="offlineStatus" style="margin-top:6px" aria-live="polite"></p>
       </div>
 
-      <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
-    </div>
-    </div>
-  </aside>
+      <div class="sec" data-tab="info">
+        <p style="margin:0 0 4px;font-weight:600">Linefinder</p>
+        <p class="hint" id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</p>
+        <button class="btn" id="goNordkette" style="margin:8px 0" hidden>Zurück zur Nordkette</button>
+        <p class="foot">Luftbild: <a href="https://basemap.at" target="_blank" rel="noopener">basemap.at</a> (CC BY 4.0, Sommeraufnahmen). Schummerung 50 cm, Bäume und Gelände: Land Tirol (CC BY 4.0). Namen, Wege, Pisten und Lifte: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-Mitwirkende. Gelände Schweiz: swissALTI3D © swisstopo. Gelände Frankreich: RGE ALTI © IGN (Licence Ouverte). Übriges Gelände: Mapzen Terrain Tiles (AWS Open Data). Luftbild Schweiz: SWISSIMAGE © swisstopo. Frankreich: © IGN. Bayern: DOP © Bayerische Vermessungsverwaltung (CC BY 4.0). Übrige Alpen: Sentinel-2 cloudless – s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2020), nicht kommerziell. Geländemodell auf 3 m Raster gerechnet. Kein Ersatz für Lawinenlagebericht und eigene Beurteilung vor Ort.</p>
+      </div>
+    </div></div>
+  </section>
+
+  <nav class="tabbar" aria-label="Bereiche">
+    <button data-open="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg><span>Karte</span></button>
+    <button data-open="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg><span>Planen</span></button>
+    <button data-open="slopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg><span>Hänge</span></button>
+    <button data-open="offline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg><span>Offline</span></button>
+    <button data-open="info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Info</span></button>
+  </nav>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -336,12 +425,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=34"></script>
-<script src="js/config.js?v=34"></script>
-<script src="js/geo.js?v=34"></script>
-<script src="js/borders.js?v=34"></script>
-<script src="js/sources.js?v=34"></script>
-<script src="js/region.js?v=34"></script>
-<script src="js/app.js?v=34"></script>
+<script src="data/nordkette-meta.js?v=35"></script>
+<script src="js/config.js?v=35"></script>
+<script src="js/geo.js?v=35"></script>
+<script src="js/borders.js?v=35"></script>
+<script src="js/sources.js?v=35"></script>
+<script src="js/region.js?v=35"></script>
+<script src="js/app.js?v=35"></script>
 </body>
 </html>
