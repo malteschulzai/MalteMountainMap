@@ -2616,7 +2616,8 @@ window.addEventListener("appinstalled",()=>{installEvt=null;$("installHint").tex
 function installSteps(){
   const ua=navigator.userAgent;
   if(/iPhone|iPad|iPod/.test(ua))return "iPhone: unten auf Teilen (Quadrat mit Pfeil) tippen, dann „Zum Home-Bildschirm“.";
-  if(/SamsungBrowser/.test(ua))return "Samsung Internet: unten rechts auf das Menü (☰) tippen, dann „Seite hinzufügen zu“ und „Startbildschirm“.";
+  // Samsung Internet no longer hands the install dialog to web pages, its own install button sits in the address bar
+  if(/SamsungBrowser/.test(ua))return "Samsung Internet lässt Webseiten das Icon nicht selbst ablegen. Ein Tipp genügt aber: oben in der Adressleiste auf das Firstline-Symbol rechts neben dem Neu-laden-Pfeil tippen und „Installieren“ wählen. Alternativ Menü (☰) → „Seite hinzufügen zu“ → „Startbildschirm“.";
   if(/Firefox/.test(ua))return "Firefox: oben rechts auf ⋮ tippen, dann „Installieren“ oder „Zum Startbildschirm hinzufügen“.";
   if(/EdgA/.test(ua))return "Edge: unten auf ··· tippen, dann „Zum Telefon hinzufügen“.";
   return "Chrome: oben rechts auf ⋮ tippen, dann „Zum Startbildschirm hinzufügen“ oder „App installieren“.";
