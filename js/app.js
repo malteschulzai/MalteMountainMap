@@ -1622,38 +1622,54 @@ $("newSnow").onchange=async e=>{state.newSnow=e.target.value;await computeWinter
 const meEl=$("me"), locBtn=$("locate");
 let me=null, meWatch=null;
 const meGrid=()=>me?[lonToX(me.lon),latToY(me.lat)]:null;
-function stopLocate(){if(meWatch!==null)navigator.geolocation.clearWatch(meWatch);meWatch=null;me=null;meEl.hidden=true;locBtn.setAttribute("aria-pressed","false");needsRender=true}
+function stopLocate(){if(meWatch!==null)navigator.geolocation.clearWatch(meWatch);meWatch=null;me=null;meActive=false;meEl.hidden=true;locBtn.setAttribute("aria-pressed","false");needsRender=true}
 function centerOnMe(){
   const g=meGrid(); if(!g)return;
   const t=gridToWorld(g[0],g[1]), off=camera.position.clone().sub(controls.target);
   if(off.length()>40)off.setLength(30);
   controls.target.copy(t); camera.position.copy(t).add(off); controls.update(); needsRender=true; scheduleLOD(); checkHere();
 }
-function startLocate(){
-  if(!navigator.geolocation){statusEl.textContent="Dieser Browser kann den Standort nicht bestimmen.";return}
-  locBtn.setAttribute("aria-pressed","true"); statusEl.textContent="Standort wird gesucht …";
+// passive: just show the dot (permission was given before), without moving the map or the status line
+let meActive=false, meWantCenter=false, meJumped=false;
+function startLocate(passive){
+  if(!navigator.geolocation){if(!passive)statusEl.textContent="Dieser Browser kann den Standort nicht bestimmen.";return}
+  if(!passive){meActive=true; meWantCenter=true; locBtn.setAttribute("aria-pressed","true")}
+  if(meWatch!==null){if(!passive){if(me&&!meEl.hidden){meWantCenter=false;const [gx,gy]=meGrid();statusEl.textContent=`Standort ±${fmt(Math.round(me.acc))} m · ${fmt(Math.round(heightGrid(gx,gy)))} m`;centerOnMe()} else statusEl.textContent="Standort wird gesucht …"}return}
+  if(!passive)statusEl.textContent="Standort wird gesucht …";
   meWatch=navigator.geolocation.watchPosition(p=>{
-    const first=!me; me={lon:p.coords.longitude,lat:p.coords.latitude,acc:p.coords.accuracy};
+    try{localStorage.setItem("lf-loc-ok","1")}catch(e){}
+    me={lon:p.coords.longitude,lat:p.coords.latitude,acc:p.coords.accuracy};
     const [gx,gy]=meGrid(), inside=gx>=1&&gy>=1&&gx<W-2&&gy<H-2;
     if(!inside){
-      if(first&&inArea(me.lon,me.lat)){try{sessionStorage.setItem("lf-locate","1")}catch(e){} goTo(me.lon,me.lat,"Mein Standort");return}
-      if(first){statusEl.textContent="Dein Standort liegt außerhalb der Alpen-Karte.";stopLocate()}
-      meEl.hidden=true; return;
+      if(meActive&&meWantCenter&&!meJumped&&inArea(me.lon,me.lat)){meJumped=true;try{sessionStorage.setItem("lf-locate","1")}catch(e){} goTo(me.lon,me.lat,"Mein Standort");return}
+      if(meActive&&meWantCenter){meWantCenter=false;statusEl.textContent="Dein Standort liegt außerhalb dieses Kartenausschnitts."}
+      meEl.hidden=true; needsRender=true; return;
     }
     meEl.hidden=false;
-    statusEl.textContent=`Standort ±${fmt(Math.round(me.acc))} m · ${fmt(Math.round(heightGrid(gx,gy)))} m`;
-    if(first)centerOnMe(); needsRender=true;
-  },err=>{statusEl.textContent=err.code===1?"Standort-Zugriff wurde nicht erlaubt. Du kannst ihn in den Browser-Einstellungen freigeben.":"Standort gerade nicht verfügbar.";stopLocate()},
+    if(meActive){statusEl.textContent=`Standort ±${fmt(Math.round(me.acc))} m · ${fmt(Math.round(heightGrid(gx,gy)))} m`;
+      if(meWantCenter){meWantCenter=false;centerOnMe()}}
+    needsRender=true;
+  },err=>{if(meActive||err.code===1){if(meActive)statusEl.textContent=err.code===1?"Standort-Zugriff wurde nicht erlaubt. Du kannst ihn in den Browser-Einstellungen freigeben.":"Standort gerade nicht verfügbar.";
+      if(err.code===1)try{localStorage.removeItem("lf-loc-ok")}catch(e){}
+      stopLocate()}},
   {enableHighAccuracy:true,maximumAge:5000,timeout:30000});
 }
-// first tap: find and centre, next tap: centre again, tap on a centred view: switch off
+// first tap: find and centre, next tap: centre again, tap on a centred view: back to just showing the dot
 locBtn.onclick=()=>{
-  if(meWatch===null){startLocate();return}
+  if(!meActive){startLocate(false);return}
   if(!me)return;
   const g=meGrid(), [tx,ty]=targetGrid();
-  if(Math.hypot(g[0]-tx,g[1]-ty)*CELL<15)stopLocate(); else centerOnMe();
+  if(Math.hypot(g[0]-tx,g[1]-ty)*CELL<15){meActive=false;locBtn.setAttribute("aria-pressed","false");statusEl.textContent="Luftbild: "+orthoSrcName()} else centerOnMe();
 };
-try{if(sessionStorage.getItem("lf-locate")){sessionStorage.removeItem("lf-locate");setTimeout(startLocate,300)}}catch(e){}
+// after "find me" jumped to a new area: keep following; otherwise show the dot whenever location was allowed before
+(async()=>{
+  let jump=false; try{jump=!!sessionStorage.getItem("lf-locate");sessionStorage.removeItem("lf-locate")}catch(e){}
+  if(jump){meJumped=true;setTimeout(()=>startLocate(false),300);return}
+  let ok=false;
+  try{const st=await navigator.permissions.query({name:"geolocation"}); ok=st.state==="granted"}
+  catch(e){try{ok=!!localStorage.getItem("lf-loc-ok")}catch(e2){}}
+  if(ok)setTimeout(()=>startLocate(true),800);
+})();
 
 // ---------- Tour planner: tap points on the map, the route is drawn between them right away ----------
 const plan={pts:[],segs:[],active:false,core:[0,0,0,0,0,0,0,0],mode:"ski",key:""};
