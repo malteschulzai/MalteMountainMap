@@ -114,13 +114,19 @@ function astar(p,I){
 function astarSki(p,I){
   const {w,h,n,z,cs,slope,dens}=T, ways=p.ways;
   const fac=new Float32Array(n);
-  for(let k=0;k<n;k++){const wv=ways?ways[k]:0, t=dens[k];let f=t<35?0:t<65?(t-35)/30*1.2:1.2+(t-65)/35*4;
-    if(wv===8)f-=0.4; else if(wv===7)f=Math.min(f,0.2)-0.1; fac[k]=1+Math.max(-0.4,f)}
+  // pistes (9), ski tour lines (8) and forest roads (7): no forest to fight through, a ready track to follow.
+  // Pistes are some 30 to 60 m wide but mapped as a centre line: widened by one cell.
+  const wy=ways?new Uint8Array(ways):null;
+  if(wy)for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(ways[k]!==9)continue;
+    for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!wy[m])wy[m]=9}}
+  for(let k=0;k<n;k++){const wv=wy?wy[k]:0, t=dens[k];let f=t<35?0:t<65?(t-35)/30*1.2:1.2+(t-65)/35*4;
+    if(wv>=8)f=-0.45; else if(wv===7)f=-0.4; fac[k]=1+Math.max(-0.45,f)}
+  T.wy=wy;
   const nx=(w+1)>>1, ny=(h+1)>>1, NN=nx*ny, D=17;
   const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
   const ANG=D16.map(([x,y])=>Math.atan2(y,x));
   // turn cost by change of heading: kick turns (more than ~110°) are expensive
-  const corr=!!p.corridor, TANS=Math.tan((p.skin||12)*Math.PI/180);
+  const corr=!!p.corridor, TANS=Math.tan((p.skin||12)*Math.PI/180), TANW=Math.tan(20*Math.PI/180), BOOT=p.boot||45;
   const kick=(corr?0.25:1.6)*(p.turn||1), TC=[];
   for(let a=0;a<16;a++){TC.push([]);for(let b=0;b<16;b++){let d=Math.abs(ANG[a]-ANG[b]);if(d>Math.PI)d=2*Math.PI-d;const deg=d*57.2958;
     TC[a].push(deg<=30?0:deg<75?0.006*(deg-30):kick)}}
@@ -139,8 +145,15 @@ function astarSki(p,I){
     if(corr){
       // corridor: where to go up, not yet how. Climbing steeper than the skin track angle costs the length of
       // the zigzags it needs (dz / tan(skin angle)) plus kick turns; ground too steep to zigzag on is avoided.
-      const dEff=dz>0?Math.max(d,dz/TANS):d, kicks=dz>0&&dz/d>TANS?dz/11*0.1:0;
-      const sm=Math.max(slope[m],slope[mid]), wall=sm>37?1+((sm-37)/2.5)**2:1;
+      const sm=Math.max(slope[m],slope[mid]), onWay=wy&&wy[m]>=7&&wy[c]>=7;
+      if(sm>=BOOT&&dz>0){
+        // too steep for skins: boot pack straight up, slow, hard and exposed
+        let b=d*0.015+dz*3.2; if(sm>50)b*=8;            // only where there is no reasonable way around
+        b*=(fac[c]+fac[mid]+fac[m])/3;
+        const hz=(I[c]+I[mid]+I[m])/3; return b+d*0.015*p.weight*30*hz*hz}
+      // on pistes, ski tour lines and forest roads the track goes straight up to about 20°
+      const tanS=onWay?TANW:TANS, dEff=dz>0?Math.max(d,dz/tanS):d, kicks=dz>0&&dz/d>tanS?dz/11*0.1:0;
+      const wall=sm>37?1+((sm-37)/2.5)**2:1;
       // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
       let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*wall;
       if(slope[m]>50||slope[mid]>50)b*=8;
@@ -191,7 +204,8 @@ function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
   return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
 function skinTrack(axis,p,I){
   const {w,h,slope,dens}=T, skin=(p.skin||12)*Math.PI/180;
-  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=46&&dens[k]<75};   // the corridor already weighed the avalanche terrain; inside it the track zigzags up even steep gullies (Karrinne)
+  const BOOT=p.boot||45, wy=T.wy;
+  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<BOOT+1.5&&dens[k]<75};   // the corridor already weighed the avalanche terrain; inside it the track zigzags up even steep gullies (Karrinne)
   // smooth and resample the corridor every cell (~10 m)
   let A=axis.map(k=>[k%w,(k-k%w)/w]);
   for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
@@ -201,9 +215,12 @@ function skinTrack(axis,p,I){
   const n=R.length, Z=R.map(q=>zAt(q[0],q[1])), S=[0];
   for(let i=1;i<n;i++)S.push(S[i-1]+Math.hypot(R[i][0]-R[i-1][0],R[i][1]-R[i-1][1])*T.cs[Math.round(R[i][1])]);
   // steep parts: climbing grade over ~40 m above the skin angle (+3°)
-  const steep=new Uint8Array(n), lim=Math.tan(skin+3*Math.PI/180);
-  for(let i=0;i<n;i++){let j=i;while(j<n-1&&S[j]-S[i]<40)j++; if(j>i&&(Z[j]-Z[i])/(S[j]-S[i])>lim)for(let k=i;k<=j;k++)steep[k]=1}
-  const out=[R[0]];
+  const steep=new Uint8Array(n), lim=Math.tan(skin+3*Math.PI/180), limW=Math.tan(23*Math.PI/180);
+  const onWay=i=>wy&&wy[cellAt(R[i][0],R[i][1])]>=7;
+  for(let i=0;i<n;i++){let j=i;while(j<n-1&&S[j]-S[i]<40)j++; let wc=0; for(let k=i;k<=j;k++)if(onWay(k))wc++;
+    const L=wc>(j-i+1)/2?limW:lim;                        // mostly on a piste or forest road: straight up to ~20°
+    if(j>i&&(Z[j]-Z[i])/(S[j]-S[i])>L)for(let k=i;k<=j;k++)steep[k]=1}
+  const out=[R[0]], boot=new Set();
   const tang=i=>{const a=R[Math.max(0,i-2)],b=R[Math.min(n-1,i+2)],l=Math.hypot(b[0]-a[0],b[1]-a[1])||1;return [(b[0]-a[0])/l,(b[1]-a[1])/l]};
   const nearest=(P,from)=>{let bi=from,bd=1e9;for(let i=Math.max(0,from-15);i<Math.min(n,from+60);i++){const d=(R[i][0]-P[0])**2+(R[i][1]-P[1])**2;if(d<bd){bd=d;bi=i}}return bi};
   // free room across the corridor at axis index i: cells to the left (+) and right (-) of the axis
@@ -211,6 +228,8 @@ function skinTrack(axis,p,I){
   // long legs, on steep ones short legs of 20 to 30 m with many kick turns
   const reach=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.7:10;
   const slopeNear=i=>{let m=0,c=0;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++){m+=slope[cellAt(R[i][0]+k,R[i][1]+j)];c++}return m/c};
+  // gully floor: the least steep cell around (walls next to a narrow gully would make it look steeper)
+  const slopeFloor=i=>{let m=90;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++)m=Math.min(m,slope[cellAt(R[i][0]+k,R[i][1]+j)]);return m};
   const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=reach(slopeNear(i))/T.cs[Math.round(R[i][1])];let r=0;
     while(r<maxHW&&ok(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
   let i=0, done=-1;
@@ -220,6 +239,9 @@ function skinTrack(axis,p,I){
     const zEnd=Z[e]; let P=R[i].slice(), k=i, legs=0;
     let side=room(i,1)>=room(i,-1)?1:-1;
     while(legs<300){
+      // too steep for skins (from about 43°): boot pack straight up the corridor, no kick turns
+      if(slopeFloor(k)>=BOOT){out.push(R[k]);while(k<e&&slopeFloor(k)>=BOOT-1){k++;out.push(R[k]);boot.add(out.length-1)}
+        P=R[k].slice(); if(k>=e||zAt(P[0],P[1])>=zEnd-2)break; continue}
       const t=tang(k), nrm=[-t[1],t[0]];
       const lim2=Math.max(0.8,room(k,side)*0.85);          // stay a bit inside the free room
       let len=0, z0=zAt(P[0],P[1]), th=skin, moved=false;
@@ -248,7 +270,7 @@ function skinTrack(axis,p,I){
     }
     i=e; done=e; out.push(R[e]);
   }
-  return out;
+  out.boot=boot; return out;
 }
 onmessage=e=>{
   const d=e.data;
@@ -263,7 +285,7 @@ onmessage=e=>{
     const axis=astarSki({...d,corridor:true},I);
     if(!axis){postMessage({err:"Keine Verbindung gefunden."});return}
     const track=skinTrack(axis,d,I);
-    const pts=track.map(([x,y])=>{const k=cellAt(x,y);return [x*2+1,y*2+1,I[k],T.slope[k]]});
+    const pts=track.map(([x,y],i)=>{const k=cellAt(x,y);return [x*2+1,y*2+1,I[k],T.slope[k],track.boot.has(i)?1:0]});
     postMessage({pts});
   }catch(err){postMessage({err:err.message||String(err)})}
 };

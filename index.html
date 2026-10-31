@@ -119,6 +119,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .overview{position:absolute;inset:0;z-index:7;background:#7d8460}
 .overview .ovbar{background:rgba(18,21,25,.88);color:#f2f4f5;backdrop-filter:blur(6px)}.overview .ovbar .hint{color:#b9c0c6}.overview .ovbar .chip{background:rgba(255,255,255,.1);color:#e9edf0;border-color:transparent}.overview .ovbar .chip[aria-pressed="true"]{background:#fff;color:#14181c}
 .overview .leaflet-container{background:#7d8460}
+.ovl{pointer-events:none}.ovl span{display:inline-block;white-space:nowrap;transform:translate(-50%,-50%);font-family:"Barlow",system-ui,sans-serif;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.75),0 1px 2px rgba(0,0,0,.6)}
+.ovl.city{font-weight:600;font-size:14px}.ovl.town{font-size:12px;font-weight:500}
+.ovl.range{font-family:"Barlow Condensed",system-ui,sans-serif;font-style:italic;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:#f4f1e6;opacity:.92}
 #ovMap{position:absolute;inset:0;bottom:var(--bar)}
 .ovbar{position:absolute;left:12px;right:12px;top:calc(max(10px,env(safe-area-inset-top,0px)));z-index:500;padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
 .overview .leaflet-popup-content{font:14px var(--font-body)}
@@ -509,12 +512,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=70"></script>
-<script src="js/config.js?v=70"></script>
-<script src="js/geo.js?v=70"></script>
-<script src="js/borders.js?v=70"></script>
-<script src="js/sources.js?v=70"></script>
-<script src="js/region.js?v=70"></script>
-<script src="js/app.js?v=70"></script>
+<script src="data/nordkette-meta.js?v=71"></script>
+<script src="js/config.js?v=71"></script>
+<script src="js/geo.js?v=71"></script>
+<script src="js/borders.js?v=71"></script>
+<script src="js/sources.js?v=71"></script>
+<script src="js/region.js?v=71"></script>
+<script src="js/app.js?v=71"></script>
 </body>
 </html>

@@ -18,6 +18,7 @@ from collections import defaultdict
 TL, TA = 0.1, 0.08
 KEEP = {"name", "ele", "natural", "tourism", "aerialway", "piste:type", "piste:difficulty",
         "piste:name", "area", "highway", "sac_scale", "tracktype", "railway"}
+# coarse names for the overview map: cities, towns and mountain ranges -> v1/labels.json
 LIFTS = {"cable_car", "gondola", "chair_lift", "drag_lift", "t-bar", "j-bar", "platter",
          "rope_tow", "magic_carpet", "mixed_lift"}
 
@@ -42,6 +43,7 @@ def main():
     out = sys.argv[1]
     tiles = {"main": defaultdict(lambda: {"n": [], "w": []}), "tracks": defaultdict(lambda: {"n": [], "w": []})}
     n_in = n_out = 0
+    places, ranges = [], {}
     t0 = time.time()
     for line in sys.stdin:
         line = line.strip().lstrip("\x1e")
@@ -53,6 +55,18 @@ def main():
         g = f.get("geometry") or {}
         typ = p.get("@type") or ("node" if g.get("type") == "Point" else "way")
         oid = p.get("@id")
+        nm = p.get("name:de") or p.get("name")
+        if nm and p.get("place") in ("city", "town") and g.get("type") == "Point":
+            try: pop = int(str(p.get("population", "0")).replace(".", "").replace(",", "").split()[0])
+            except Exception: pop = 0
+            lon, lat = g["coordinates"][:2]
+            places.append([round(lon, 4), round(lat, 4), nm, pop, 1 if p.get("place") == "city" else 2])
+            continue
+        if nm and p.get("natural") == "mountain_range":
+            cs = g.get("coordinates") or []
+            c = cs if g.get("type") == "Point" else (cs[len(cs) // 2] if cs else None)
+            if c and nm not in ranges: ranges[nm] = [round(c[0], 4), round(c[1], 4), nm]
+            continue
         tags = {k: v for k, v in p.items() if k in KEEP}
         k = kind_of(tags, typ == "node")
         if not k:
@@ -88,6 +102,9 @@ def main():
                 fh.write(s)
             total += len(s)
         print(f"{k}: {len(tt)} tiles", flush=True)
+    with open(os.path.join(out, "v1", "labels.json"), "w", encoding="utf-8") as fh:
+        json.dump({"places": places, "ranges": list(ranges.values())}, fh, separators=(",", ":"), ensure_ascii=False)
+    print(f"labels: {len(places)} places, {len(ranges)} ranges", flush=True)
     meta = {"v": 1, "built": time.strftime("%Y-%m-%d"), "tile": [TL, TA],
             "tiles": {k: sorted([f"{i}_{j}" for (i, j) in tt.keys()]) for k, tt in tiles.items()},
             "attribution": "© OpenStreetMap contributors (ODbL)"}

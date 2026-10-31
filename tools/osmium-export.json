@@ -1,6 +1,26 @@
 {
-  "attributes": {"type": true, "id": true},
+  "attributes": {
+    "type": true,
+    "id": true
+  },
   "linear_tags": true,
   "area_tags": false,
-  "include_tags": ["name", "ele", "natural", "tourism", "aerialway", "piste:type", "piste:difficulty", "piste:name", "area", "highway", "sac_scale", "tracktype", "railway"]
+  "include_tags": [
+    "name",
+    "ele",
+    "natural",
+    "tourism",
+    "aerialway",
+    "piste:type",
+    "piste:difficulty",
+    "piste:name",
+    "area",
+    "highway",
+    "sac_scale",
+    "tracktype",
+    "railway",
+    "place",
+    "population",
+    "name:de"
+  ]
 }

@@ -1722,12 +1722,13 @@ const plan={pts:[],segs:[],active:false,core:[0,0,0,0,0,0,0,0],mode:"ski",key:""
 // paths, forest roads and ski tour routes from OpenStreetMap on the 10 m planner grid
 function waysMask(){
   const w=W>>1,h=H>>1,m=new Uint8Array(w*h);
-  for(const wy of osmWays){
-    const v=wy.kind==="path"?(wy.track?7:(wy.grade||2)):wy.kind==="piste"&&wy.dashed?8:0; if(!v)continue;
+  // 1..6 hiking paths by SAC grade, 7 forest roads, 8 ski tour lines, 9 pistes (only where no path lies)
+  for(const wy of osmWays.concat(tourWays)){
+    const v=wy.kind==="path"?(wy.track?7:(wy.grade||2)):wy.kind==="tour"?8:wy.kind==="piste"?9:0; if(!v)continue;
     const p=wy.pts;
     for(let i=1;i<p.length;i++){const ax=p[i-1][0],ay=p[i-1][1],bx=p[i][0],by=p[i][1],n=Math.ceil(Math.hypot(bx-ax,by-ay))+1;
       for(let t=0;t<=n;t++){const x=Math.floor((ax+(bx-ax)*t/n)/2),y=Math.floor((ay+(by-ay)*t/n)/2);if(x<0||y<0||x>=w||y>=h)continue;
-        const k=y*w+x; m[k]=m[k]?Math.min(m[k],v):v}}
+        const k=y*w+x; m[k]=!m[k]?v:v<=7&&m[k]<=7?Math.min(m[k],v):m[k]<=7?m[k]:Math.min(m[k],v)}}
   }
   return m;
 }
@@ -1824,7 +1825,8 @@ function planInfo(){
   // walking time like the Alpine clubs: the larger of horizontal and vertical time plus half the smaller
   const hz=km/4, vt=plan.mode==="hike"?st.up/300+st.down/500:st.up/400, t=Math.max(hz,vt)+Math.min(hz,vt)/2;
   const risk=route.plan?` · Risiko ${route.plan.score<1?"gering":route.plan.score<2?"erhöht":"hoch"}`:"";
-  box.innerHTML=`<b>${fmt(km,1)} km · ${fmt(Math.round(st.up/10)*10)} Hm hoch · ${fmt(Math.round(st.down/10)*10)} Hm runter</b><br>${plan.mode==="hike"?"Gehzeit":"Aufstieg"} ca. ${hhmm(t)}${risk}`;
+  const boot=route.plan&&route.plan.boot>=15?` · Stapfen ca. ${fmt(Math.round(route.plan.boot/10)*10)} Hm`:"";
+  box.innerHTML=`<b>${fmt(km,1)} km · ${fmt(Math.round(st.up/10)*10)} Hm hoch · ${fmt(Math.round(st.down/10)*10)} Hm runter</b><br>${plan.mode==="hike"?"Gehzeit":"Aufstieg"} ca. ${hhmm(t)}${risk}${boot}`;
 }
 function applyPlanRoute(){
   const all=[]; plan.segs.forEach((s,i)=>{if(s)s.forEach((p,j)=>{if(i&&!j)return;all.push(p)})});
@@ -1836,7 +1838,9 @@ function applyPlanRoute(){
     // like Skitourenguru: mean indicator of the riskiest ~250 m of the route
     const segs=route.samples.map((s,i)=>[route.risk[i],i?s.d-route.samples[i-1].d:0]).sort((a,b)=>b[0]-a[0]);
     let L=0,sum=0; for(const [v,d] of segs){if(L>=250)break;const t=Math.min(d,250-L);sum+=v*t;L+=t}
-    route.plan={dl,score:L?sum/L:0}; buildRouteLine(); renderRouteInfo();
+    // height climbed on foot (boot pack) where the worker marked the track as too steep for skins
+    let boot=0; for(let i=1;i<all.length;i++)if(all[i][4]&&all[i-1][4]){const dz=elevAt(all[i][0],all[i][1])-elevAt(all[i-1][0],all[i-1][1]);if(dz>0)boot+=dz}
+    route.plan={dl,score:L?sum/L:0,boot}; buildRouteLine(); renderRouteInfo();
   }
   planInfo(); needsRender=true;
 }
@@ -2467,6 +2471,23 @@ async function reliefTile(c,cv){
   const tmp=new OffscreenCanvas(S,S); tmp.getContext("2d").putImageData(out,0,0);
   const ctx=cv.getContext("2d"); ctx.imageSmoothingQuality="high"; ctx.drawImage(tmp,0,0,256,256);
 }
+// coarse names on the relief: cities, towns and mountain ranges (from the prepared OSM data), thinned so they never overlap
+let ovLab=null, ovLabLayer=null;
+async function ovLabels(){
+  if(!ovMap)return;
+  if(!ovLab)ovLab=fetch("osm/v1/labels.json").then(r=>r.ok?r.json():null).catch(()=>null);
+  const L0=await ovLab; if(!L0)return;
+  if(!ovLabLayer)ovLabLayer=L.layerGroup().addTo(ovMap);
+  ovLabLayer.clearLayers(); if(ovMap._names===false)return;
+  const z=ovMap.getZoom(), b=ovMap.getBounds().pad(0.1), items=[];
+  for(const r of L0.ranges)if(z>=7&&z<=12)items.push({ll:[r[1],r[0]],t:r[2],c:"ovl range",p:z<=9?3e5:8e4});
+  for(const q of L0.places){const [lon,lat,t,pop,rank]=q; const need=rank===1?6:pop>=20000?8:pop>=5000?9:10; if(z<need)continue; items.push({ll:[lat,lon],t,c:"ovl "+(rank===1?"city":"town"),p:(rank===1?2e5:0)+pop})}
+  items.sort((a,b)=>b.p-a.p); const boxes=[];
+  for(const it of items){if(!b.contains(it.ll))continue;
+    const pt=ovMap.latLngToContainerPoint(it.ll), w=it.t.length*(it.c.includes("range")?7.5:7)+10, h=18, bx=[pt.x-w/2,pt.y-h/2,pt.x+w/2,pt.y+h/2];
+    if(boxes.some(o=>bx[0]<o[2]&&bx[2]>o[0]&&bx[1]<o[3]&&bx[3]>o[1]))continue; boxes.push(bx);
+    ovLabLayer.addLayer(L.marker(it.ll,{interactive:false,keyboard:false,icon:L.divIcon({className:it.c,html:`<span>${escapeHtml(it.t)}</span>`,iconSize:[0,0]})}))}
+}
 async function openOverview(){
   $("overview").hidden=false; openPanel(null);
   try{await loadLeaflet()}catch(e){$("ovHint").textContent="Übersichtskarte gerade nicht erreichbar.";return}
@@ -2478,8 +2499,10 @@ async function openOverview(){
     const relief=new (L.GridLayer.extend({createTile(c,done){const cv=document.createElement("canvas");cv.width=cv.height=256;reliefTile(c,cv).then(()=>done(null,cv)).catch(e=>done(e,cv));return cv}}))({maxZoom:17,maxNativeZoom:15,attribution:'Relief: <a href="https://mapterhorn.com/attribution">Mapterhorn</a> aus offenen Landesdaten'});
     const topo=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{subdomains:"abc",maxZoom:17,attribution:'Karte © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), Daten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, SRTM'});
     relief.addTo(ovMap); ovMap._base={relief,topo};
+    ovLabels(); ovMap.on("zoomend moveend",ovLabels);
     document.querySelectorAll("[data-ov]").forEach(b=>b.onclick=()=>{const k=b.dataset.ov;
       for(const n in ovMap._base){if(n===k)ovMap._base[n].addTo(ovMap);else ovMap.removeLayer(ovMap._base[n])}
+      ovMap._names=k==="relief"; ovLabels();
       document.querySelectorAll("[data-ov]").forEach(x=>x.setAttribute("aria-pressed",x===b))});
     ovMap.on("click",e=>{const {lat,lng}=e.latlng, ok=inArea(lng,lat);
       const div=document.createElement("div"); div.innerHTML=ok?`<b>${fmt(lat,4)} N, ${fmt(lng,4)} O</b><br><button class="btn primary" style="margin-top:6px">Hier in 3D öffnen</button>`:"Außerhalb des Kartengebiets";
