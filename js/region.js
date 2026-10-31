@@ -1,4 +1,4 @@
-// Linefinder – any place in the Alps: Land Tirol laser scan, swissALTI3D, IGN RGE ALTI, else Terrarium.
+// Firstline Map: any place in the Alps: Land Tirol laser scan, swissALTI3D, IGN RGE ALTI, else Terrarium.
 // Active when the URL has ?at=lon,lat[&n=name]. Builds the same data the app gets for the Nordkette:
 // 5 m terrain grid (Web Mercator), vegetation from surface minus terrain, tree positions, surrounding terrain.
 (function(){

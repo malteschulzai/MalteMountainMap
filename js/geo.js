@@ -1,4 +1,4 @@
-// Geodesy and GeoTIFF helpers for Malte Mountain Map.
+// Geodesy and GeoTIFF helpers for Firstline Map.
 // - Web Mercator <-> WGS84, WGS84 -> MGI / Austria GK West (EPSG:31254) incl. datum shift (EPSG:1618 parameters)
 // - Minimal reader for uncompressed float32 GeoTIFFs as returned by the Land Tirol WCS
 (function(root){

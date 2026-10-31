@@ -1,7 +1,7 @@
 {
-  "name": "Linefinder",
-  "short_name": "Linefinder",
-  "description": "3D-Tourenkarte Nordkette mit Luftbild, Laserscan-Gelände und Winterlayer",
+  "name": "Firstline Map",
+  "short_name": "Firstline Map",
+  "description": "3D-Tourenkarte für die Alpen: Skitouren und Bergtouren planen, Hangneigung, Lawinenlage, offline nutzbar",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

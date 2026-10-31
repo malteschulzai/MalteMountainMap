@@ -1,4 +1,4 @@
-// Linefinder – 3D terrain with basemap.at orthophoto, slope, contours, winter model, GPX.
+// Firstline Map: 3D terrain with basemap.at orthophoto, slope, contours, winter model, GPX.
 (async function(){
 "use strict";
 let REG=null;
@@ -1858,7 +1858,7 @@ const RISK_COL=v=>v<1?"#2e9d4f":v<2?"#ee8a2b":"#d7301f";
 function gpxText(){
   const r=route, pts=r.samples.filter((s,i)=>i%2===0||i===r.samples.length-1);
   const esc=s=>String(s).replace(/[<&>]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;"}[c]));
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Linefinder" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(r.name)}</name><trkseg>\n`+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firstline Map" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(r.name)}</name><trkseg>\n`+
     pts.map(s=>`<trkpt lat="${yToLat(s.gy).toFixed(6)}" lon="${xToLon(s.gx).toFixed(6)}"><ele>${s.e.toFixed(1)}</ele></trkpt>`).join("\n")+`\n</trkseg></trk>\n</gpx>\n`;
 }
 function downloadGpx(){
@@ -2287,8 +2287,8 @@ function renderPtList(){
 $("ptGpx").onclick=()=>{
   const pts=loadPts(); if(!pts.length)return;
   const esc=s=>String(s).replace(/[<&>]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;"}[c]));
-  const x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Linefinder" xmlns="http://www.topografix.com/GPX/1/1">\n`+pts.map(p=>`<wpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"><ele>${p.ele}</ele><name>${esc(p.name)}</name></wpt>`).join("\n")+`\n</gpx>\n`;
-  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([x],{type:"application/gpx+xml"})); a.download="Linefinder-Punkte.gpx"; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
+  const x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firstline Map" xmlns="http://www.topografix.com/GPX/1/1">\n`+pts.map(p=>`<wpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"><ele>${p.ele}</ele><name>${esc(p.name)}</name></wpt>`).join("\n")+`\n</gpx>\n`;
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([x],{type:"application/gpx+xml"})); a.download="Firstline-Map-Punkte.gpx"; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
 };
 syncPtMarkers();
 

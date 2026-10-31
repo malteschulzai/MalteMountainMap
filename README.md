@@ -1,8 +1,8 @@
-# Linefinder
+# Firstline Map
 
-Ganz Tirol: Über die Suche oder `?at=lon,lat` wird ein Bereich von 10 × 7,5 km mit 5-m-Gelände, Wald und Umgebung direkt von den Diensten des Landes Tirol geladen. Nahe der Kamera kommen 1-m-Detailkacheln dazu.
+Persönliche 3D-Tourenkarte für die Alpen nach dem Vorbild von FATMAP: Skitouren und Bergtouren planen, Hangneigung, Lawinenlage, Hangsuche, offline nutzbar.
 
-Persönliche 3D-Tourenkarte nach dem Vorbild von FATMAP. Testregion: Nordkette bei Innsbruck.
+Über die Suche oder `?at=lon,lat` wird ein Bereich von 10 × 7,5 km mit dem besten frei verfügbaren Gelände des jeweiligen Landes geladen (Tirol, Schweiz, Frankreich, sonst Terrarium). Nahe der Kamera kommen 1-m-Detailkacheln dazu.
 
 Funktionen: Luftbild (basemap.at) auf 3D-Gelände mit Nachladen schärferer Kacheln beim Heranzoomen, Hangneigung (30/35/40/45°), Höhenlinien, modellierter Winterlayer, Punktabfrage, GPX-Auswertung mit Höhenprofil.
 
