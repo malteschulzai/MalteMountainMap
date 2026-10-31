@@ -333,6 +333,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <button class="chip" id="lyPaths" aria-pressed="false">Wege</button>
           <button class="chip" id="lySnowgrid" aria-pressed="false">SNOWGRID</button>
           <button class="chip" id="lySnowFc" aria-pressed="false">Neuschnee-Prognose</button>
+          <button class="chip" id="lyTours" aria-pressed="false">Skitouren</button>
         </div>
         <div class="legend" id="legend" hidden>
         <span><i style="background:var(--s30)"></i>30–35°</span>
@@ -345,10 +346,14 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <span><i class="dash" style="--c:#d9a400"></i>T1</span><span><i class="dash" style="--c:#d7301f"></i>T2</span><span><i class="dash" style="--c:#9b1c12"></i>T3</span>
         <span><i class="dash" style="--c:#2f6fd8"></i>T4</span><span><i class="dash" style="--c:#1f3f9a"></i>T5</span><span><i class="dash" style="--c:#111"></i>T6</span>
         <span><i style="background:#b88a4a;height:5px;vertical-align:1px"></i>Forstweg</span>
-        <span><i style="background:#2a7de1"></i>blau</span><span><i style="background:#d7301f"></i>rot</span><span><i style="background:#111"></i>schwarz</span><span><i class="dash" style="--c:#7b2d8e"></i>Skitour</span>
+        <span><i style="background:#2a7de1"></i>blau</span><span><i style="background:#d7301f"></i>rot</span><span><i style="background:#111"></i>schwarz</span>
       </div>
       <div class="legend" id="legendDanger" hidden>
         <span><i style="background:#ccff66"></i>1 gering</span><span><i style="background:#ffff00"></i>2 mäßig</span><span><i style="background:#ff9900"></i>3 erheblich</span><span><i style="background:#ff0000"></i>4 groß</span><span><i style="background:#a00000"></i>5 sehr groß</span>
+      </div>
+      <div class="legend" id="legendTours" hidden>
+        <span><i class="dash" style="--c:#c2187a"></i>Skitour swisstopo/SAC (Schweiz)</span><span><i class="dash" style="--c:#7b2d8e"></i>Skitour OpenStreetMap</span>
+        <span style="flex-basis:100%">Tippe auf eine Linie für Name, Schwierigkeit und Link. Die Linien sagen nichts über die aktuellen Verhältnisse.</span>
       </div>
       <div class="legend" id="legendSnowFc" hidden>
         <span><i style="background:#b8dbff"></i>2–10 cm</span><span><i style="background:#6badff"></i>10–20</span><span><i style="background:#2e6beb"></i>20–40</span><span><i style="background:#6b33cc"></i>40–70</span><span><i style="background:#cc26b3"></i>über 70</span>
@@ -487,12 +492,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=61"></script>
-<script src="js/config.js?v=61"></script>
-<script src="js/geo.js?v=61"></script>
-<script src="js/borders.js?v=61"></script>
-<script src="js/sources.js?v=61"></script>
-<script src="js/region.js?v=61"></script>
-<script src="js/app.js?v=61"></script>
+<script src="data/nordkette-meta.js?v=62"></script>
+<script src="js/config.js?v=62"></script>
+<script src="js/geo.js?v=62"></script>
+<script src="js/borders.js?v=62"></script>
+<script src="js/sources.js?v=62"></script>
+<script src="js/region.js?v=62"></script>
+<script src="js/app.js?v=62"></script>
 </body>
 </html>

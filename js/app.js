@@ -202,9 +202,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,snowfc:false,fcHours:72,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
+const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,snowfc:false,fcHours:72,tours:false,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","snowfc","fcHours","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","snowfc","fcHours","tours","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -1049,7 +1049,8 @@ const SAC_COL=["#888","#d9a400","#d7301f","#9b1c12","#2f6fd8","#1f3f9a","#111111
 const PISTE_COL={novice:"#2a7de1",easy:"#2a7de1",intermediate:"#d7301f",advanced:"#111111",expert:"#111111",freeride:"#f08c00",extreme:"#f08c00"};
 const PISTE_NAME={novice:"blaue Piste",easy:"blaue Piste",intermediate:"rote Piste",advanced:"schwarze Piste",expert:"schwarze Piste",freeride:"Skiroute",extreme:"Skiroute"};
 const LIFT_NAME={cable_car:"Seilbahn",gondola:"Gondelbahn",chair_lift:"Sessellift",drag_lift:"Schlepplift","t-bar":"Schlepplift","j-bar":"Schlepplift",platter:"Tellerlift",rope_tow:"Seillift",magic_carpet:"Förderband",mixed_lift:"Kombibahn",funicular:"Standseilbahn"};
-var osmWays=[];
+var osmWays=[], tourWays=[];
+const wayOn=w=>w.kind==="path"?state.paths:w.kind==="tour"?state.tours:state.pistes;
 // ask the Overpass servers one after another with a short head start each, the first good answer wins
 async function overpassFetch(q,timeout){
   const ctls=OVERPASS.map(()=>new AbortController()), t=setTimeout(()=>ctls.forEach(c=>c.abort()),timeout);
@@ -1175,7 +1176,7 @@ function processOsm(j1,j2){
     else if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
     else if(tg.highway==="path"||tg.highway==="footway"){grade=1;kind="path";color="#9a8f7a";dashed=true;label=(tg.name?tg.name+" · ":"")+"Weg ohne Schwierigkeitsangabe";unrated=true}
     else if(tg["piste:type"]==="downhill"){if(tg.area==="yes")continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
-    else if(tg["piste:type"]==="skitour"){kind="piste";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute"}
+    else if(tg["piste:type"]==="skitour"){kind="tour";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute (OpenStreetMap)"}
     else if(tg.aerialway||tg.railway==="funicular"){kind="lift";color="#1b2420";air=!!tg.aerialway;label=(tg.name?tg.name+" · ":"")+(LIFT_NAME[tg.aerialway||"funicular"]||"Lift")}
     else continue;
     let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(p=>{bx0=Math.min(bx0,p[0]);bx1=Math.max(bx1,p[0]);by0=Math.min(by0,p[1]);by1=Math.max(by1,p[1])});
@@ -1213,13 +1214,13 @@ function patchCorners(gx,gy){
 }
 function buildOverlay(){
   overlayMeshes.forEach(m=>{scene.remove(m);m.geometry.dispose();m.material.dispose()}); overlayMeshes=[];
-  if(!osmWays.length){needsRender=true;return}
+  if(!osmWays.length&&!tourWays.length){needsRender=true;return}
   const groups={shadow:{p:[],c:[]},track:{p:[],c:[]},casing:{p:[],c:[]},solid:{p:[],c:[]},dashed:{p:[],c:[]}}, col=new THREE.Color(), white=new THREE.Color("#ffffff");
   const step=Math.max(0.5,6/CELL), lift=0.025;
   const inside=(gx,gy)=>gx>=0&&gy>=0&&gx<=W-1&&gy<=H-1;
   const P=(gx,gy,up)=>[(gx-W/2)*sc,meshTop(gx,gy)/U*state.exag+up,(gy-H/2)*sc];
-  for(const w of osmWays){
-    if(w.kind==="path"&&!state.paths)continue; if(w.kind!=="path"&&!state.pistes)continue;
+  for(const w of osmWays.concat(tourWays)){
+    if(!wayOn(w))continue;
     col.set(w.color); const g=w.track?groups.track:w.dashed?groups.dashed:groups.solid, cas=!w.dashed&&!w.track, shadow=w.track;
     for(let i=0;i<w.pts.length-1;i++){
       const [ax,ay]=w.pts[i],[bx,by]=w.pts[i+1]; if(!inside(ax,ay)||!inside(bx,by))continue;
@@ -1368,7 +1369,7 @@ renderer.domElement.addEventListener("pointerup",e=>{
 const SAC_NAME=["","T1 Wanderweg","T2 Bergweg","T3 anspruchsvoller Bergweg","T4 Alpinwanderung","T5 anspruchsvolle Alpinwanderung","T6 schwierige Alpinwanderung"];
 function nearestWay(gx,gy){
   let best=null, bd=22/CELL; // ~22 m
-  for(const w of osmWays){ if((w.kind==="path"&&!state.paths)||(w.kind!=="path"&&!state.pistes))continue;
+  for(const w of osmWays.concat(tourWays)){ if(!wayOn(w))continue;
     if(gx<w.bx0-bd||gx>w.bx1+bd||gy<w.by0-bd||gy>w.by1+bd)continue;
     const p=w.pts;
     for(let i=0;i<p.length-1;i++){const ax=p[i][0],ay=p[i][1],bx=p[i+1][0],by=p[i+1][1],dx=bx-ax,dy=by-ay,l=dx*dx+dy*dy;
@@ -1389,8 +1390,8 @@ function showPoint(gx,gy){
     if(t>=5){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">Wald: ${t} % Kronendeckung, ${t<35?"licht":t<65?"mittel":"dicht"}${ty===1?", Laubwald":ty===2?", Nadelwald":""}</span>`;$("pointInfo").appendChild(d)}}
   const sgv=snowgridAt(gx,gy);
   if(sgv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">SNOWGRID: ${fmt(Math.round(sgv))} cm (Mittel der 1-km-Zelle)</span>`;$("pointInfo").appendChild(d)}
-  const w=osmWays.length?nearestWay(gx,gy):null;
-  if(w){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub" style="color:var(--ink)"><b>${escapeHtml(w.label)}</b></span>`;$("pointInfo").appendChild(d)}
+  const w=osmWays.length||tourWays.length?nearestWay(gx,gy):null;
+  if(w){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub" style="color:var(--ink)"><b>${escapeHtml(w.label)}</b>${w.info?"<br>"+escapeHtml(w.info):""}${w.link?` · <a href="${w.link}" target="_blank" rel="noopener">Beschreibung</a>`:""}</span>`;$("pointInfo").appendChild(d)}
   const fv=snowFcAt(gx,gy);
   if(fv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">Neuschnee-Prognose ${state.fcHours} h: etwa ${fmt(Math.round(fv))} cm</span>`;$("pointInfo").appendChild(d)}
   const wb=document.createElement("div"); wb.className="row"; wb.style.marginTop="8px"; wb.innerHTML='<button class="btn" id="wxBtn">Wetter hier</button>'; $("pointInfo").appendChild(wb);
@@ -1606,7 +1607,7 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lyDanger","danger"],["lyStations","stations"],["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"],["lySnowFc","snowfc"]].forEach(([id,key])=>{
+[["lyDanger","danger"],["lyStations","stations"],["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"],["lySnowFc","snowfc"],["lyTours","tours"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
@@ -1617,6 +1618,7 @@ $("bmRelief").onclick=()=>setBase("relief");
     if(key==="danger"&&state.danger)await buildDanger().catch(()=>{statusEl.textContent="Lagebericht gerade nicht erreichbar"});
     if(key==="stations"&&state.stations)await loadStations();
     if(key==="snowfc"&&state.snowfc)await buildSnowFc();
+    if(key==="tours"){if(state.tours)await loadTours(); buildOverlay(); $("legendTours").hidden=!state.tours}
     applyUniforms();
   };
 });
@@ -2297,6 +2299,37 @@ function placeStations(){
   }
 }
 
+// ---------- Ski tours: swisstopo / SAC routes (Switzerland, free geodata of the Confederation) and OSM ski tour lines ----------
+let toursP=null;
+function loadTours(){
+  if(toursP)return toursP;
+  toursP=(async()=>{
+    const w=xToLon(0), e=xToLon(W-1), n=yToLat(0), so=yToLat(H-1), cs=new Set();
+    if(window.MMMSrc)for(let j=0;j<=4;j++)for(let i=0;i<=4;i++)cs.add(MMMSrc.country(w+(e-w)*i/4,so+(n-so)*j/4));
+    const out=[];
+    if(cs.has("CH")||cs.has("LI")){
+      statusEl.textContent="Skitouren werden geladen …";
+      for(let off=0;off<2000;off+=200){
+        const j=await fetchJson(`https://api3.geo.admin.ch/rest/services/api/MapServer/identify?layers=all:ch.swisstopo-karto.skitouren&geometryType=esriGeometryEnvelope&geometry=${w.toFixed(4)},${so.toFixed(4)},${e.toFixed(4)},${n.toFixed(4)}&sr=4326&tolerance=0&returnGeometry=true&geometryFormat=geojson&limit=200&offset=${off}&lang=de`);
+        const res=j&&j.results||[]; 
+        for(const f of res){const p=f.properties||{}, g=f.geometry; if(!g)continue;
+          const lines=g.type==="LineString"?[g.coordinates]:g.type==="MultiLineString"?g.coordinates:[];
+          const nm=p.target_name?`${p.target_name}${p.target_altitude?" "+p.target_altitude+" m":""}`:"Skiroute";
+          const label=`${nm}${p.difficulty_de?" · "+p.difficulty_de:""} · Skitour (swisstopo/SAC)`;
+          const info=[p.name_de&&p.name_de!=="Keine Routeninfo verfügbar"?p.name_de:"",p.ascent_altitude?`${p.ascent_altitude} Hm Aufstieg`:"",p.ascent_time_label?p.ascent_time_label.replace(" h"," h"):""].filter(Boolean).join(" · ");
+          for(const ln of lines){if(ln.length<2)continue; const pts=ln.map(c=>[lonToX(c[0]),latToY(c[1])]);
+            let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(q=>{bx0=Math.min(bx0,q[0]);bx1=Math.max(bx1,q[0]);by0=Math.min(by0,q[1]);by1=Math.max(by1,q[1])});
+            out.push({kind:"tour",color:"#c2187a",dashed:true,label,info,link:p.url_sac_de||null,grade:0,air:false,track:false,pts,bx0,bx1,by0,by1})}}
+        if(res.length<200)break;
+      }
+      statusEl.textContent="Luftbild: "+orthoSrcName();
+    }
+    tourWays=out; return out;
+  })();
+  toursP.catch(()=>{toursP=null});
+  return toursP;
+}
+
 // ---------- Weather from Open-Meteo (best model per place, e.g. ICON-D2, MeteoSwiss, AROME) ----------
 const OM_URL="https://api.open-meteo.com/v1/forecast";
 const WMO=c=>c===0?"klar":c<=2?"leicht bewölkt":c===3?"bedeckt":c<=48?"Nebel":c<=57?"Niesel":c<=67?"Regen":c<=77?"Schneefall":c<=82?"Regenschauer":c<=86?"Schneeschauer":"Gewitter";
@@ -2584,7 +2617,7 @@ function navigateKeepView(lon,lat,tlon,tlat){
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
 function syncUI(){
-  const chips={lyDanger:"danger",lyStations:"stations",lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths",lySnowFc:"snowfc"};
+  const chips={lyDanger:"danger",lyStations:"stations",lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths",lySnowFc:"snowfc",lyTours:"tours"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
   $("snowLvl").value=state.snow; $("wind").value=state.wind; $("newSnow").value=state.newSnow; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
@@ -2622,6 +2655,7 @@ computeAO();
 if(state.danger)buildDanger().catch(()=>{});
 if(state.stations)loadStations();
 if(state.snowfc)buildSnowFc();
+if(state.tours){$("legendTours").hidden=false;loadTours().then(buildOverlay)}
 (async()=>{
   if(state.winter){await computeWinter(true);applyUniforms()}
   const sn=$("snap"); if(!sn)return;
