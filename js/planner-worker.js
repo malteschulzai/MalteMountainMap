@@ -191,7 +191,7 @@ function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
   return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
 function skinTrack(axis,p,I){
   const {w,h,slope,dens}=T, skin=(p.skin||12)*Math.PI/180;
-  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=44&&dens[k]<75&&I[k]<2.9};   // steep gullies are still zigzagged up (Karrinne)
+  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=46&&dens[k]<75};   // the corridor already weighed the avalanche terrain; inside it the track zigzags up even steep gullies (Karrinne)
   // smooth and resample the corridor every cell (~10 m)
   let A=axis.map(k=>[k%w,(k-k%w)/w]);
   for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
@@ -209,7 +209,7 @@ function skinTrack(axis,p,I){
   // free room across the corridor at axis index i: cells to the left (+) and right (-) of the axis
   // how far a leg reaches to each side, from the reference track (Nordkette, 27.11.2025): on moderate slopes
   // long legs, on steep ones short legs of 20 to 30 m with many kick turns
-  const reach=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.2:12;
+  const reach=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.7:10;
   const slopeNear=i=>{let m=0,c=0;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++){m+=slope[cellAt(R[i][0]+k,R[i][1]+j)];c++}return m/c};
   const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=reach(slopeNear(i))/T.cs[Math.round(R[i][1])];let r=0;
     while(r<maxHW&&ok(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
@@ -221,7 +221,7 @@ function skinTrack(axis,p,I){
     let side=room(i,1)>=room(i,-1)?1:-1;
     while(legs<300){
       const t=tang(k), nrm=[-t[1],t[0]];
-      const lim2=Math.max(1.2,room(k,side)*0.85);          // stay a bit inside the free room
+      const lim2=Math.max(0.8,room(k,side)*0.85);          // stay a bit inside the free room
       let len=0, z0=zAt(P[0],P[1]), th=skin, moved=false;
       for(let st=0;st<200;st++){
         const [gx,gy,c]=gradAt(P[0],P[1]), gl=Math.hypot(gx,gy), Sl=Math.atan(gl);
@@ -233,6 +233,7 @@ function skinTrack(axis,p,I){
         const Q=[P[0]+hx*0.5,P[1]+hy*0.5];
         if(!ok(Q[0],Q[1]))break;
         P=Q; len+=0.5; moved=true; k=nearest(P,k);
+        if(len%2===0)out.push(P.slice());                  // keep the leg's shape (it follows the terrain), a point every ~20 m
         const off=(P[0]-R[k][0])*nrm[0]+(P[1]-R[k][1])*nrm[1];
         if(off*side>=lim2)break;                            // other side of the corridor reached: kick turn
         if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
@@ -241,7 +242,7 @@ function skinTrack(axis,p,I){
       if(moved)out.push(P.slice());
       legs++;
       if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
-      if(!moved||zAt(P[0],P[1])-z0<0.8){                   // no room to zigzag: follow the corridor a few cells
+      if(!moved||zAt(P[0],P[1])-z0<0.3){                   // no room to zigzag: follow the corridor a few cells
         k=Math.min(e,k+3); P=R[k].slice(); out.push(P.slice())}
       side=-side;
     }
