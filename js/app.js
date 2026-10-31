@@ -1069,23 +1069,85 @@ async function overpass(q,key,oldKeys,rounds,timeout){
   if(cache)for(const k of oldKeys||[]){try{const hit=await cache.match(k); if(hit)return await hit.json()}catch(e){}}
   return null;
 }
-function osmQueries(g){
+function osmBox(g){
   const [w,s]=MMMGeo.mercToLonLat(g.x0,g.y1-g.H*g.cell), [e,n]=MMMGeo.mercToLonLat(g.x0+g.W*g.cell,g.y1);
-  const bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
-  const q1=`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`;
-  const q2=`[out:json][timeout:90];(way["highway"="track"](${bb});way["highway"="path"][!"sac_scale"](${bb}););out geom;`;
-  const base="https://mmm.local/osm/"+bb;
-  return {q1,q2,base};
+  return {w,s,e,n};
+}
+function osmQueries(g){
+  const {w,s,e,n}=osmBox(g), bb=`${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
+  return {q1:OSM_Q.main(bb),q2:OSM_Q.tracks(bb),base:"https://mmm.local/osm/"+bb};
+}
+const OSM_Q={
+  main:bb=>`[out:json][timeout:90];(node["natural"~"^(peak|saddle)$"]["name"](${bb});node["tourism"~"^(alpine_hut|wilderness_hut)$"]["name"](${bb});node["aerialway"="station"]["name"](${bb});way["piste:type"~"^(downhill|skitour)$"](${bb});way["aerialway"~"^(cable_car|gondola|chair_lift|drag_lift|t-bar|j-bar|platter|rope_tow|magic_carpet|mixed_lift)$"](${bb});way["railway"="funicular"](${bb});way["highway"~"^(path|footway|bridleway|steps)$"]["sac_scale"](${bb}););out geom;`,
+  tracks:bb=>`[out:json][timeout:90];(way["highway"="track"](${bb});way["highway"="path"][!"sac_scale"](${bb}););out geom;`};
+// OSM data is cached in small fixed tiles (about 1.9 x 2.2 km), not per map region. Moving the map or
+// coming back later only asks the server for tiles never seen before, everything else comes from the device.
+const OT_LON=0.025, OT_LAT=0.02, OT_V="t1";
+const otKey=(kind,i,j)=>`https://mmm.local/osmt/${OT_V}/${kind}/${i},${j}`;
+function osmTiles(b){const t=[];
+  for(let j=Math.floor(b.s/OT_LAT);j<=Math.floor((b.n-1e-9)/OT_LAT);j++)for(let i=Math.floor(b.w/OT_LON);i<=Math.floor((b.e-1e-9)/OT_LON);i++)t.push([i,j]);
+  return t}
+function elBounds(el){
+  if(el.type==="node")return [el.lon,el.lat,el.lon,el.lat];
+  if(el.bounds)return [el.bounds.minlon,el.bounds.minlat,el.bounds.maxlon,el.bounds.maxlat];
+  let a=1e9,b=1e9,c=-1e9,d=-1e9; for(const g of el.geometry||[]){a=Math.min(a,g.lon);b=Math.min(b,g.lat);c=Math.max(c,g.lon);d=Math.max(d,g.lat)} return [a,b,c,d]}
+// store one Overpass answer (covering whole tiles i0..i1, j0..j1) as tiles
+async function putTiles(cache,kind,els,i0,i1,j0,j1){
+  const tiles=new Map();
+  for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)tiles.set(i+","+j,[]);
+  for(const el of els){const [a,b,c,d]=elBounds(el);
+    for(let j=Math.max(j0,Math.floor(b/OT_LAT));j<=Math.min(j1,Math.floor(d/OT_LAT));j++)
+      for(let i=Math.max(i0,Math.floor(a/OT_LON));i<=Math.min(i1,Math.floor(c/OT_LON));i++)tiles.get(i+","+j).push(el)}
+  const out=new Map(), day=new Date().toISOString().slice(0,10);
+  await Promise.all([...tiles].map(async([k,list])=>{out.set(k,list); if(!cache)return;
+    const [i,j]=k.split(",").map(Number);
+    try{await cache.put(otKey(kind,i,j),new Response(JSON.stringify({d:day,elements:list}),{headers:{"Content-Type":"application/json"}}))}catch(e){}}));
+  return out;
+}
+const OLD_SUFFIX={main:["/main4"],tracks:["/tracks6"]}, OLD_FALLBACK={main:["/v3","/v2"],tracks:["/tracks5","/tracks4"]};
+async function osmArea(kind,box,opt){
+  opt=opt||{}; const tiles=osmTiles(box); let cache=null;
+  try{cache=await caches.open("mmm-osm")}catch(e){}
+  const have=new Map(); let miss=[];
+  if(cache)await Promise.all(tiles.map(async([i,j])=>{try{const r=await cache.match(otKey(kind,i,j)); if(r)have.set(i+","+j,(await r.json()).elements)}catch(e){}}));
+  miss=tiles.filter(([i,j])=>!have.has(i+","+j));
+  // an answer saved by the older per-region cache still counts for the tiles it fully covers
+  if(miss.length&&cache&&opt.base){
+    const m=/osm\/(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)/.exec(opt.base);
+    for(const suf of OLD_SUFFIX[kind]){let r=null;try{r=await cache.match(opt.base+suf)}catch(e){} if(!r)continue;
+      const [s,w,n,e]=m.slice(1).map(Number), i0=Math.ceil(w/OT_LON), i1=Math.floor(e/OT_LON)-1, j0=Math.ceil(s/OT_LAT), j1=Math.floor(n/OT_LAT)-1;
+      if(i1>=i0&&j1>=j0){const got=await putTiles(cache,kind,(await r.json()).elements||[],i0,i1,j0,j1); for(const [k,v] of got)have.set(k,v)}
+      miss=tiles.filter(([i,j])=>!have.has(i+","+j)); break}
+  }
+  let failed=false;
+  if(miss.length){
+    if(opt.onWait)opt.onWait(miss.length,tiles.length);
+    const I=miss.map(t=>t[0]), J=miss.map(t=>t[1]), i0=Math.min(...I), i1=Math.max(...I), j0=Math.min(...J), j1=Math.max(...J);
+    const bb=`${(j0*OT_LAT).toFixed(4)},${(i0*OT_LON).toFixed(4)},${((j1+1)*OT_LAT).toFixed(4)},${((i1+1)*OT_LON).toFixed(4)}`;
+    let tx=null; const rounds=opt.rounds||2;
+    for(let r=0;r<rounds&&!tx;r++){tx=await overpassFetch(OSM_Q[kind](bb),opt.timeout||45000); if(!tx&&r<rounds-1)await new Promise(res=>setTimeout(res,3000*(r+1)))}
+    if(tx){let j=null;try{j=JSON.parse(tx)}catch(e){}
+      if(j){const got=await putTiles(cache,kind,j.elements||[],i0,i1,j0,j1); for(const [k,v] of got)have.set(k,v)} else failed=true}
+    else failed=true;
+  }
+  // server busy and tiles missing: an older complete answer for exactly this region is better than holes
+  if(failed&&cache&&opt.base)for(const suf of OLD_FALLBACK[kind]){try{const r=await cache.match(opt.base+suf); if(r)return await r.json()}catch(e){}}
+  if(!have.size)return null;
+  const seen=new Set(), elements=[];
+  for(const list of have.values())for(const el of list){const k=el.type+el.id; if(seen.has(k))continue; seen.add(k);
+    if(el.type==="node"&&(el.lon<box.w||el.lon>box.e||el.lat<box.s||el.lat>box.n))continue;
+    elements.push(el)}
+  return {elements,partial:failed};
 }
 async function loadOsm(){
-  const {q1,q2,base}=osmQueries({x0:G.x0,y1:G.y1,W,H,cell:G.cell});
+  const g={x0:G.x0,y1:G.y1,W,H,cell:G.cell}, box=osmBox(g), {base}=osmQueries(g);
   // names, lifts and marked paths first, forest roads and unrated paths whenever they arrive
-  const p1=overpass(q1,base+"/main4",[base+"/v3",base+"/v2"]), p2=overpass(q2,base+"/tracks6",[base+"/tracks5",base+"/tracks4"]);
+  const p1=osmArea("main",box,{base}), p2=osmArea("tracks",box,{base});
   let j1=null,j2=null;
   j1=await p1; if(j1)processOsm(j1,null);
   j2=await p2; if(j2)processOsm(j1,j2);
   if(!j1&&!j2){console.warn("OpenStreetMap nicht erreichbar");statusEl.textContent="Wege und Pisten gerade nicht erreichbar, neuer Versuch in 30 s";setTimeout(loadOsm,30000);return}
-  if(!j2)setTimeout(loadOsm,60000);
+  if(!j1||!j2||j1.partial||j2.partial)setTimeout(loadOsm,60000);
 }
 function processOsm(j1,j2){
   const seen=new Set(), json={elements:[]};
@@ -1898,13 +1960,13 @@ async function offDownload(e){
   let failO=0;
   for(let i=0;i<p.regions.length;i++){
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
-    const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
+    const g={x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell}, box=osmBox(g), {base}=osmQueries(g);
     const at=nR*WR+urls.length+i*WO, lbl=`Wege und Namen ${i+1} von ${nR}`; pct(at,lbl);
     if(failO>=2&&failO===i){failO=p.regions.length;break}   // server clearly down: skip the rest, retry later
     // the server gives no progress, so creep forward while waiting (up to 90 % of this area's share)
     const t0=Date.now(), tick=setInterval(()=>pct(at+WO*0.9*(1-Math.exp(-(Date.now()-t0)/15000)),lbl),1000);
-    const o1=await overpass(q1,base+"/main4",[],1,30000); pct(at+WO*0.5,lbl);
-    const o2=await overpass(q2,base+"/tracks6",[],1,30000); clearInterval(tick); if(!o1||!o2)failO++;
+    const o1=await osmArea("main",box,{base,rounds:1,timeout:30000}); pct(at+WO*0.5,lbl);
+    const o2=await osmArea("tracks",box,{base,rounds:1,timeout:30000}); clearInterval(tick); if(!o1||!o2||o1.partial||o2.partial)failO++;
   }
   let est="";try{const q=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(q.usage/1e6)} MB.`}catch(err){}
   const miss=[failR?failR+" Geländestücke":"",failO?"Wege und Namen für "+failO+" Gebiete (OpenStreetMap-Server ausgelastet)":"",fail>urls.length*0.05?fail+" Bilder":""].filter(Boolean);
