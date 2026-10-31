@@ -120,7 +120,7 @@ function astarSki(p,I){
   const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
   const ANG=D16.map(([x,y])=>Math.atan2(y,x));
   // turn cost by change of heading: kick turns (more than ~110°) are expensive
-  const corr=!!p.corridor, TANS=Math.tan((p.skin||14)*Math.PI/180);
+  const corr=!!p.corridor, TANS=Math.tan((p.skin||12)*Math.PI/180);
   const kick=(corr?0.25:1.6)*(p.turn||1), TC=[];
   for(let a=0;a<16;a++){TC.push([]);for(let b=0;b<16;b++){let d=Math.abs(ANG[a]-ANG[b]);if(d>Math.PI)d=2*Math.PI-d;const deg=d*57.2958;
     TC[a].push(deg<=30?0:deg<75?0.006*(deg-30):kick)}}
@@ -183,13 +183,14 @@ function astarSki(p,I){
 // ---- Skin track: zigzags along the corridor, like a real track ----
 // Where the corridor climbs steeper than the skin angle, legs climb at that constant angle across the room
 // the terrain gives (open slope: long legs, gully between rocks: short legs), with a kick turn at each end.
+// Skin angle 12°: median of the reference track data/tracks/2025-11-27_Innsbruck_Splitboardtour.gpx (11.7°).
 function zAt(x,y){const {w,h,z}=T;x=Math.max(0,Math.min(w-1.001,x));y=Math.max(0,Math.min(h-1.001,y));
   const i=Math.floor(x),j=Math.floor(y),a=x-i,b=y-j,k=j*w+i;return z[k]*(1-a)*(1-b)+z[k+1]*a*(1-b)+z[k+w]*(1-a)*b+z[k+w+1]*a*b}
 const cellAt=(x,y)=>Math.min(T.h-1,Math.max(0,Math.round(y)))*T.w+Math.min(T.w-1,Math.max(0,Math.round(x)));
 function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
   return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
 function skinTrack(axis,p,I){
-  const {w,h,slope,dens}=T, skin=(p.skin||14)*Math.PI/180;
+  const {w,h,slope,dens}=T, skin=(p.skin||12)*Math.PI/180;
   const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=40&&dens[k]<75&&I[k]<2.6};
   // smooth and resample the corridor every cell (~10 m)
   let A=axis.map(k=>[k%w,(k-k%w)/w]);
@@ -206,7 +207,11 @@ function skinTrack(axis,p,I){
   const tang=i=>{const a=R[Math.max(0,i-2)],b=R[Math.min(n-1,i+2)],l=Math.hypot(b[0]-a[0],b[1]-a[1])||1;return [(b[0]-a[0])/l,(b[1]-a[1])/l]};
   const nearest=(P,from)=>{let bi=from,bd=1e9;for(let i=Math.max(0,from-15);i<Math.min(n,from+60);i++){const d=(R[i][0]-P[0])**2+(R[i][1]-P[1])**2;if(d<bd){bd=d;bi=i}}return bi};
   // free room across the corridor at axis index i: cells to the left (+) and right (-) of the axis
-  const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=75/T.cs[Math.round(R[i][1])];let r=0;
+  // how far a leg reaches to each side, from the reference track (Nordkette, 27.11.2025): on moderate slopes
+  // long legs, on steep ones short legs of 20 to 30 m with many kick turns
+  const reach=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.2:12;
+  const slopeNear=i=>{let m=0,c=0;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++){m+=slope[cellAt(R[i][0]+k,R[i][1]+j)];c++}return m/c};
+  const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=reach(slopeNear(i))/T.cs[Math.round(R[i][1])];let r=0;
     while(r<maxHW&&ok(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
   let i=0, done=-1;
   while(i<n-1){
