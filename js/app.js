@@ -393,7 +393,7 @@ void main(){
     col = oc.rgb;
     olum=dot(col,vec3(.299,.587,.114));
     // snow or ice in the summer photo: bright, or bluish where a north face lies in shadow
-    snowP=smoothstep(0.45,0.66,olum+1.2*(oc.b-oc.r));
+    snowP=smoothstep(0.45,0.66,olum+1.2*(oc.b-oc.r))*smoothstep(0.27,0.40,olum)*(1.0-smoothstep(58.0,70.0,slope));
     col *= mix(1.0, 0.72+0.5*sg, 0.38);
     float l2=dot(col,vec3(.299,.587,.114));
     col = clamp(mix(vec3(l2),col,1.18),0.0,1.0);
@@ -413,7 +413,9 @@ void main(){
     steepF*=1.0-snowP;   // ice or firn face in the photo, not rock
     float g1=hash(floor(vec2(vWorld.x+vWorld.z,vWorld.y)*60.0)), g2=hash(floor(vec2(vWorld.x-vWorld.z,vWorld.y)*150.0));
     float l=dot(col,vec3(.299,.587,.114));
-    vec3 rockBase=ortho?mix(vec3(l)*vec3(1.03,1.0,0.95),col,0.3):vec3(.56,.53,.50);
+    // the photo is taken from above: on steep faces it is smeared into stripes, so only its blurred tone is used
+    vec3 ob=useLocal>0.5?texture2D(localMap,vUv2,4.0).rgb:oc.rgb; float lb=dot(ob,vec3(.299,.587,.114));
+    vec3 rockBase=ortho?mix(vec3(.50,.48,.45),vec3(lb)*vec3(1.03,1.0,0.95),0.45):vec3(.56,.53,.50);
     vec3 rk=rockBase*(0.22+1.05*geoL)*(0.86+0.2*g1+0.08*g2);
     col=mix(col*mix(1.0,0.72+0.5*geoL,0.4),rk,steepF);
   }
@@ -440,6 +442,13 @@ void main(){
     if(hasForest>0.5) crownC=mix(crownC, vec3(.40,.36,.32)*(0.6+0.7*so), broad*0.8);   // leafless broadleaf (and larch-like) crowns
     vec3 shrubC=mix(vec3(.09,.16,.09)*(0.55+0.9*so), snowCol(so), 0.18);
     vec3 w=snowCol(isPatch>0.5?mix(sg,geoL,0.55):sg);
+    if(ortho){
+      // ice and firn already white in the summer photo: keep the photo (crevasses, seracs, bergschrunds)
+      vec3 ice=clamp(oc.rgb*1.06+vec3(0.02,0.03,0.05),0.0,1.0)*mix(1.0,0.78+0.4*(isPatch>0.5?geoL:sg),0.5);
+      w=mix(w, ice, snowP*smoothstep(1800.0,2300.0,vElev)*0.85);
+      // a hint of the ground's texture under fresh snow everywhere else
+      w*=mix(1.0, 0.9+0.2*smoothstep(0.15,0.75,olum), 0.35*(1.0-snowP));
+    }
     w=mix(w, shrubC, clamp(crownS,0.0,1.0)*0.92);
     w=mix(w, crownC, clamp(crownT*1.15,0.0,1.0)*0.93);
     vec3 under=col;
@@ -608,6 +617,7 @@ function buildBin(k){
   for(let j=0;j<cnt;j++){const i=bin.idx[j];
     const gx=treeData.x[i]/16, gy=treeData.y[i]/16, h=treeData.h[i]/4, k=idxAt(gx,gy);
     if(slopeAt(k)>42||E(k)>2150)continue;
+    if(clearMask&&clearMask[Math.floor(gy/2)*(W>>1)+Math.floor(gx/2)])continue;   // piste or forest road: a cut through the forest
     const ps=patchSlope(gx,gy); if(ps!==null&&ps>50)continue;
     _p.set((gx-W/2)*sc, heightGrid(gx,gy)/U, (gy-H/2)*sc);
     _q.setFromAxisAngle(_up,(i*2.399)%6.283);
@@ -616,6 +626,19 @@ function buildBin(k){
   }
   mesh.count=m;
   mesh.instanceMatrix.needsUpdate=true; treeGroup.add(mesh); tBuilt.set(k,mesh); needsRender=true;
+}
+// clearings: no 3D trees on pistes (some 30 m wide) and forest roads, so the lines there stay visible
+let clearMask=null;
+function buildClearMask(){
+  const w=W>>1,h=H>>1,m=new Uint8Array(w*h); let any=false;
+  for(const wy of osmWays){const r=wy.kind==="piste"&&!wy.dashed?1:wy.kind==="path"&&wy.track?0:-1; if(r<0)continue;
+    const p=wy.pts;
+    for(let i=1;i<p.length;i++){const ax=p[i-1][0],ay=p[i-1][1],bx=p[i][0],by=p[i][1],n=Math.ceil(Math.hypot(bx-ax,by-ay))+1;
+      for(let t=0;t<=n;t++){const x=Math.floor((ax+(bx-ax)*t/n)/2),y=Math.floor((ay+(by-ay)*t/n)/2);
+        for(let j=-r;j<=r;j++)for(let q=-r;q<=r;q++){const xx=x+q,yy=y+j;if(xx>=0&&yy>=0&&xx<w&&yy<h){m[yy*w+xx]=1;any=true}}}}}
+  clearMask=any?m:null;
+  for(const k of [...tBuilt.keys()])dropBin(k);
+  scheduleLOD();
 }
 function dropBin(k){const m=tBuilt.get(k); if(!m)return; treeGroup.remove(m); m.dispose(); tBuilt.delete(k); needsRender=true}
 function updateTrees(){
@@ -1224,7 +1247,7 @@ function processOsm(j1,j2){
           acc+=d}}
     }
   }
-  osmWays=ways; addLabels(labels); buildOverlay();
+  osmWays=ways; addLabels(labels); buildOverlay(); buildClearMask();
 }
 let overlayMeshes=[], overlayTimer=null;
 function scheduleOverlay(){clearTimeout(overlayTimer);overlayTimer=setTimeout(buildOverlay,500)}

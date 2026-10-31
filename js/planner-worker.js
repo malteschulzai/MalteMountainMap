@@ -27,7 +27,12 @@ function prep(d){
   ord.sort((a,b)=>z[b]-z[a]);
   // tree cover density (0..100) for the ski cost: light forest is fine, dense forest is hard to ski
   const dens=new Uint8Array(n); if(tcd)for(let k=0;k<n;k++)dens[k]=tcd[k*2]; else if(veg)for(let k=0;k<n;k++)dens[k]=Math.round(veg[k*2]/255*80);
-  T={w,h,n,z,cs,slope,asp,ridge,forest,dens,ord,key:d.key};
+  // room for kick turns: distance (cells of ~10 m) to the nearest ground of 45° or more
+  const free=new Uint8Array(n).fill(30);
+  for(let k=0;k<n;k++)if(slope[k]>=45)free[k]=0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(x)free[k]=Math.min(free[k],free[k-1]+1); if(y)free[k]=Math.min(free[k],free[k-w]+1)}
+  for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){const k=y*w+x; if(x<w-1)free[k]=Math.min(free[k],free[k+1]+1); if(y<h-1)free[k]=Math.min(free[k],free[k+w]+1)}
+  T={w,h,n,z,cs,slope,asp,ridge,forest,dens,ord,free,key:d.key};
 }
 // max filter with radius r (cells), separable
 function maxFilter(src,w,h,r){
@@ -112,7 +117,7 @@ function astar(p,I){
 // Ski tours: A* on a 20 m lattice with the direction of travel in the state. With corridor=true it finds
 // where to go up (zigzag length already counted), skinTrack() then lays the actual zigzags into it.
 function astarSki(p,I){
-  const {w,h,n,z,cs,slope,dens}=T, ways=p.ways;
+  const {w,h,n,z,cs,slope,dens,free}=T, ways=p.ways;
   const fac=new Float32Array(n);
   // pistes (9), ski tour lines (8) and forest roads (7): no forest to fight through, a ready track to follow.
   // Pistes are some 30 to 60 m wide but mapped as a centre line: widened by one cell.
@@ -153,7 +158,9 @@ function astarSki(p,I){
         const hz=(I[c]+I[mid]+I[m])/3; return b+d*0.015*p.weight*30*hz*hz}
       // on pistes, ski tour lines and forest roads the track goes straight up to about 20°
       const tanS=onWay?TANW:TANS, dEff=dz>0?Math.max(d,dz/tanS):d, kicks=dz>0&&dz/d>tanS?dz/11*0.1:0;
-      const wall=sm>37?1+((sm-37)/2.5)**2:1;
+      let wall=sm>37?1+((sm-37)/2.5)**2:1;
+      // zigzags need room: in a gully narrower than ~20 m between steep walls kick turns get very short and awkward
+      if(dz>0&&dz/d>tanS){const fr=Math.min(free[m],free[mid]); if(fr<2)wall*=1+(2-fr)*0.6}
       // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
       let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*wall;
       if(slope[m]>50||slope[mid]>50)b*=8;
@@ -264,8 +271,8 @@ function skinTrack(axis,p,I){
       if(moved)out.push(P.slice());
       legs++;
       if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
-      if(!moved||zAt(P[0],P[1])-z0<0.3){                   // no room to zigzag: follow the corridor a few cells
-        k=Math.min(e,k+3); P=R[k].slice(); out.push(P.slice())}
+      if(!moved||zAt(P[0],P[1])-z0<0.3){                   // no room to zigzag: straight up the corridor on foot
+        const k0=k; k=Math.min(e,k+3); for(let q=k0+1;q<=k;q++){out.push(R[q].slice());boot.add(out.length-1)} P=R[k].slice()}
       side=-side;
     }
     i=e; done=e; out.push(R[e]);
