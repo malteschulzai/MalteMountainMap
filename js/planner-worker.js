@@ -109,8 +109,8 @@ function astar(p,I){
   const path=[]; for(let k=goal;k>=0;k=k===start?-1:from[k])path.push(k); path.reverse();
   return path;
 }
-// Ski tours: A* on a 20 m lattice with the direction of travel in the state, so every kick turn costs
-// something. That gives fewer, longer zigzags, like a good skin track, instead of tight ladders.
+// Ski tours: A* on a 20 m lattice with the direction of travel in the state. With corridor=true it finds
+// where to go up (zigzag length already counted), skinTrack() then lays the actual zigzags into it.
 function astarSki(p,I){
   const {w,h,n,z,cs,slope,dens}=T, ways=p.ways;
   const fac=new Float32Array(n);
@@ -120,7 +120,8 @@ function astarSki(p,I){
   const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
   const ANG=D16.map(([x,y])=>Math.atan2(y,x));
   // turn cost by change of heading: kick turns (more than ~110°) are expensive
-  const kick=1.6*(p.turn||1), TC=[];
+  const corr=!!p.corridor, TANS=Math.tan((p.skin||14)*Math.PI/180);
+  const kick=(corr?0.25:1.6)*(p.turn||1), TC=[];
   for(let a=0;a<16;a++){TC.push([]);for(let b=0;b<16;b++){let d=Math.abs(ANG[a]-ANG[b]);if(d>Math.PI)d=2*Math.PI-d;const deg=d*57.2958;
     TC[a].push(deg<=30?0:deg<75?0.006*(deg-30):kick)}}
   const sx=Math.min(nx-1,Math.round(p.s[0]/2)), sy=Math.min(ny-1,Math.round(p.s[1]/2)), gx=Math.min(nx-1,Math.round(p.g[0]/2)), gy=Math.min(ny-1,Math.round(p.g[1]/2));
@@ -135,6 +136,16 @@ function astarSki(p,I){
   const stepCost=(i,j,dd)=>{const ii=i+D16[dd][0]/2, jj=j+D16[dd][1]/2;
     const c=cell(i,j), m=cell(ii,jj), mid=Math.min(h-1,Math.round((2*j+2*jj)/2))*w+Math.min(w-1,Math.round((2*i+2*ii)/2));
     const d=Math.hypot(D16[dd][0],D16[dd][1])*cs[Math.min(h-1,2*j)], dz=z[m]-z[c], ang=Math.atan(Math.abs(dz)/d)*57.2958;
+    if(corr){
+      // corridor: where to go up, not yet how. Climbing steeper than the skin track angle costs the length of
+      // the zigzags it needs (dz / tan(skin angle)) plus kick turns; ground too steep to zigzag on is avoided.
+      const dEff=dz>0?Math.max(d,dz/TANS):d, kicks=dz>0&&dz/d>TANS?dz/11*0.1:0;
+      const sm=Math.max(slope[m],slope[mid]), wall=sm>37?1+((sm-37)/2.5)**2:1;
+      // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
+      let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*wall;
+      if(slope[m]>50||slope[mid]>50)b*=8;
+      b*=(fac[c]+fac[mid]+fac[m])/3;
+      const hz=(I[c]+I[mid]+I[m])/3; return b+dEff*0.015*p.weight*30*hz*hz*wall}
     let base=d*0.015+(dz>0?dz*0.15:-dz*0.02);
     // a skin track steeper than ~30° is not skinnable: kick turns instead. The factor applies to the avalanche
     // term too, otherwise the route would go straight up through steep terrain to keep the exposure short.
@@ -169,15 +180,84 @@ function astarSki(p,I){
   const out=[]; for(let s=best;s>=0;s=from[s]){const node=(s/D)|0, i=node%nx, j=(node-i)/nx; out.push(cell(i,j)); if(s===st)break}
   return out.reverse();
 }
+// ---- Skin track: zigzags along the corridor, like a real track ----
+// Where the corridor climbs steeper than the skin angle, legs climb at that constant angle across the room
+// the terrain gives (open slope: long legs, gully between rocks: short legs), with a kick turn at each end.
+function zAt(x,y){const {w,h,z}=T;x=Math.max(0,Math.min(w-1.001,x));y=Math.max(0,Math.min(h-1.001,y));
+  const i=Math.floor(x),j=Math.floor(y),a=x-i,b=y-j,k=j*w+i;return z[k]*(1-a)*(1-b)+z[k+1]*a*(1-b)+z[k+w]*(1-a)*b+z[k+w+1]*a*b}
+const cellAt=(x,y)=>Math.min(T.h-1,Math.max(0,Math.round(y)))*T.w+Math.min(T.w-1,Math.max(0,Math.round(x)));
+function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
+  return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
+function skinTrack(axis,p,I){
+  const {w,h,slope,dens}=T, skin=(p.skin||14)*Math.PI/180;
+  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=40&&dens[k]<75&&I[k]<2.6};
+  // smooth and resample the corridor every cell (~10 m)
+  let A=axis.map(k=>[k%w,(k-k%w)/w]);
+  for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
+  const R=[A[0]]; for(let i=1;i<A.length;i++){const a=R[R.length-1],b=A[i],d=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    if(d<1)continue; const n=Math.floor(d); for(let k=1;k<=n;k++)R.push([a[0]+(b[0]-a[0])*k/d,a[1]+(b[1]-a[1])*k/d])}
+  const last=A[A.length-1]; if(Math.hypot(last[0]-R[R.length-1][0],last[1]-R[R.length-1][1])>0.3)R.push(last);
+  const n=R.length, Z=R.map(q=>zAt(q[0],q[1])), S=[0];
+  for(let i=1;i<n;i++)S.push(S[i-1]+Math.hypot(R[i][0]-R[i-1][0],R[i][1]-R[i-1][1])*T.cs[Math.round(R[i][1])]);
+  // steep parts: climbing grade over ~40 m above the skin angle (+3°)
+  const steep=new Uint8Array(n), lim=Math.tan(skin+3*Math.PI/180);
+  for(let i=0;i<n;i++){let j=i;while(j<n-1&&S[j]-S[i]<40)j++; if(j>i&&(Z[j]-Z[i])/(S[j]-S[i])>lim)for(let k=i;k<=j;k++)steep[k]=1}
+  const out=[R[0]];
+  const tang=i=>{const a=R[Math.max(0,i-2)],b=R[Math.min(n-1,i+2)],l=Math.hypot(b[0]-a[0],b[1]-a[1])||1;return [(b[0]-a[0])/l,(b[1]-a[1])/l]};
+  const nearest=(P,from)=>{let bi=from,bd=1e9;for(let i=Math.max(0,from-15);i<Math.min(n,from+60);i++){const d=(R[i][0]-P[0])**2+(R[i][1]-P[1])**2;if(d<bd){bd=d;bi=i}}return bi};
+  // free room across the corridor at axis index i: cells to the left (+) and right (-) of the axis
+  const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=75/T.cs[Math.round(R[i][1])];let r=0;
+    while(r<maxHW&&ok(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
+  let i=0, done=-1;
+  while(i<n-1){
+    if(!steep[i]||i===done){i++;out.push(R[i]);continue}
+    let e=i; while(e<n-1&&steep[e+1])e++;                 // steep section i..e: zigzag from R[i] up to R[e]
+    const zEnd=Z[e]; let P=R[i].slice(), k=i, legs=0;
+    let side=room(i,1)>=room(i,-1)?1:-1;
+    while(legs<300){
+      const t=tang(k), nrm=[-t[1],t[0]];
+      const lim2=Math.max(1.2,room(k,side)*0.85);          // stay a bit inside the free room
+      let len=0, z0=zAt(P[0],P[1]), th=skin, moved=false;
+      for(let st=0;st<200;st++){
+        const [gx,gy,c]=gradAt(P[0],P[1]), gl=Math.hypot(gx,gy), Sl=Math.atan(gl);
+        let hx,hy;
+        if(Sl<=th+0.02){hx=t[0];hy=t[1]}                     // not steeper than the skin angle here: straight on
+        else{const cb=Math.tan(th)/Math.tan(Sl), sb=Math.sqrt(1-cb*cb);   // leg at the skin angle: cos(angle to fall line)=tan(skin)/tan(slope)
+          const upx=gx/gl, upy=gy/gl; let cx=-upy, cy=upx; if((cx*nrm[0]+cy*nrm[1])*side<0){cx=-cx;cy=-cy}
+          hx=cb*upx+sb*cx; hy=cb*upy+sb*cy}
+        const Q=[P[0]+hx*0.5,P[1]+hy*0.5];
+        if(!ok(Q[0],Q[1]))break;
+        P=Q; len+=0.5; moved=true; k=nearest(P,k);
+        const off=(P[0]-R[k][0])*nrm[0]+(P[1]-R[k][1])*nrm[1];
+        if(off*side>=lim2)break;                            // other side of the corridor reached: kick turn
+        if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
+        if(len*c>300)break;                                  // very wide open slope: legs of at most ~300 m
+      }
+      if(moved)out.push(P.slice());
+      legs++;
+      if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
+      if(!moved||zAt(P[0],P[1])-z0<0.8){                   // no room to zigzag: follow the corridor a few cells
+        k=Math.min(e,k+3); P=R[k].slice(); out.push(P.slice())}
+      side=-side;
+    }
+    i=e; done=e; out.push(R[e]);
+  }
+  return out;
+}
 onmessage=e=>{
   const d=e.data;
   try{
     if(d.prep){prep(d);postMessage({ready:true});return}
     if(!T)throw new Error("Gelände fehlt");
     const I=d.mode==="hike"?new Float32Array(T.n):hazard(d);
-    const path=d.mode==="hike"?astar(d,I):astarSki(d,I);
-    if(!path){postMessage({err:"Keine Verbindung gefunden."});return}
-    const pts=path.map(k=>{const x=k%T.w,y=(k-x)/T.w;return [x*2+1,y*2+1,I[k],T.slope[k]]});
+    if(d.mode==="hike"){
+      const path=astar(d,I); if(!path){postMessage({err:"Keine Verbindung gefunden."});return}
+      postMessage({pts:path.map(k=>{const x=k%T.w,y=(k-x)/T.w;return [x*2+1,y*2+1,I[k],T.slope[k]]})}); return}
+    // ski tour: corridor first, then the skin track with real zigzags inside it
+    const axis=astarSki({...d,corridor:true},I);
+    if(!axis){postMessage({err:"Keine Verbindung gefunden."});return}
+    const track=skinTrack(axis,d,I);
+    const pts=track.map(([x,y])=>{const k=cellAt(x,y);return [x*2+1,y*2+1,I[k],T.slope[k]]});
     postMessage({pts});
   }catch(err){postMessage({err:err.message||String(err)})}
 };
