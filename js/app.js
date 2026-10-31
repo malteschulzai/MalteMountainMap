@@ -2453,7 +2453,8 @@ async function reliefTile(c,cv){
     const gx=(E[xp]-E[xm])/((xp-xm)*px)*ex, gy=(E[yp]-E[ym])/(((yp-ym)/S)*px)*ex, e=E[k];
     const nl=Math.hypot(gx,gy,1), sh=Math.max(0,(-gx*lx-gy*ly+lz)/nl), sl=Math.atan(Math.hypot(gx,gy)/ex)*57.3;
     let r,g,b;
-    if(e<=0.5||(E[xp]===e&&E[xm]===e&&E[yp]===e&&E[ym]===e&&e>100)){r=52;g=104;b=150;o.set([r,g,b,255],4*k);continue}  // lakes, sea
+    const flat=x>1&&y>1&&x<S-2&&y<S-2&&E[xp]===e&&E[xm]===e&&E[yp]===e&&E[ym]===e&&E[k+2]===e&&E[k-2]===e&&E[k+2*S]===e&&E[k-2*S]===e&&E[k-S-1]===e&&E[k+S+1]===e;
+    if(e<=0.5||(flat&&e>100)){r=52;g=104;b=150;o.set([r,g,b,255],4*k);continue}  // lakes, sea
     // land: olive lowland, darker green with height, rock grey above
     const t=Math.min(1,Math.max(0,(e-300)/1600)); r=128-30*t; g=134-26*t; b=98-18*t;
     if(e>1900){const q=Math.min(1,(e-1900)/500); r=r+(146-r)*q; g=g+(140-g)*q; b=b+(128-b)*q}
