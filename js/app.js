@@ -2644,7 +2644,7 @@ if(REG){
     camera.lookAt(tg); needsRender=true; scheduleLOD();
   } else { lookAt(gx,gy+180,30,"3d"); placeMarker(gx,gy) }
   {const c=META.center||[0,0], sn=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]), tir=c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8;
-   const lbl=tir?"Laserscan Tirol":sn==="swisstopo"?"swissALTI3D":sn==="IGN"?"IGN RGE ALTI":"Gelände 30 m";
+   const lbl=tir?"Laserscan Tirol":sn==="swisstopo"?"swissALTI3D":sn==="IGN"?"IGN RGE ALTI":"Laserscan (Mapterhorn)";
    const cn=window.MMMSrc&&MMMSrc.country(c[0],c[1]), land={AT:"Österreich",CH:"Schweiz",LI:"Liechtenstein",FR:"Frankreich",IT:"Italien",DE:"Bayern",SI:"Slowenien"}[cn]||"Alpen";
    $("subtitle").textContent=(META.name||(tir&&cn==="AT"?"Tirol":land))+" · "+lbl}
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
