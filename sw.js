@@ -1,5 +1,5 @@
 // Linefinder service worker: offline app shell, saved areas, cached map tiles.
-const SHELL="mmm-shell-v56", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
+const SHELL="mmm-shell-v57", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
 const SHELL_FILES=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(SHELL).then(c=>Promise.all(SHELL_FILES.map(u=>c.add(u).catch(()=>{})))).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("mmm-shell-")&&k!==SHELL).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});

@@ -1869,20 +1869,26 @@ async function offDownload(e){
   const shell=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png","js/region-worker.js?v="+APPV,"js/planner-worker.js?v="+APPV].map(u=>new URL(u,location.href).href);
   [...document.querySelectorAll("script[src]")].forEach(s=>shell.push(s.src));
   const urls=[...shell,...p.urls];
+  // one overall percentage across all steps, weighted by rough effort (a terrain piece or OSM area ~ many tiles)
+  const nR=p.regions.length, WR=Math.max(40,p.urls.length*0.6/nR), WO=Math.max(15,p.urls.length*0.15/nR);
+  let total=nR*WR+urls.length+nR*WO, prog=0, shown=-1;
+  const pct=(at,what)=>{prog=Math.max(prog,at); const v=Math.min(99,Math.floor(prog/total*100)); if(v!==shown||what!==pct.w){shown=v;pct.w=what;st.textContent=`Download ${v} % · ${what}`}};
+  pct(0,"Gelände");
   let failR=0;
   for(let i=0;i<p.regions.length;i++){
     const [lon,lat]=p.regions[i];
-    st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert …`;
-    try{await window.MMM_keepRegion(lon,lat,n=>{st.textContent=`Gelände ${i+1} von ${p.regions.length} wird gespeichert … ${n} %`})}catch(err){failR++;console.warn(err)}
+    pct(i*WR,`Gelände ${i+1} von ${nR}`);
+    try{await window.MMM_keepRegion(lon,lat,n=>pct((i+(+n||0)/100)*WR,`Gelände ${i+1} von ${nR}`))}catch(err){failR++;console.warn(err)}
   }
   // plastic relief (Land Tirol hillshade, overview resolution) exactly as the map requests it
   for(const [lon,lat] of p.regions){if(!(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8))continue;
     const cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat), w=Math.min(4096,MAXTEX), x0=cx-2000/2*cell, y1=cy+1500/2*cell;
-    shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000)).forEach(u=>urls.push(u))}
+    shadeUrls(x0,x0+2000*cell,y1-1500*cell,y1,w,Math.round(w*1500/2000)).forEach(u=>{urls.push(u);total++})}
+  pct(nR*WR,"Luftbild");
   const cache=await caches.open(OFFLINE_CACHE); let done=0, fail=0, bytes=0, k=0;
   const work=async()=>{while(k<urls.length){const u=urls[k++];
     try{if(!(await caches.match(u))){const r=await fetch(u,{mode:"cors"});if(!r.ok)throw 0;const bl=await r.clone().blob();bytes+=bl.size;await cache.put(u,r)}else await cache.put(u,await caches.match(u))}catch(err){fail++}
-    done++; if(done%20===0||done===urls.length)st.textContent=`Luftbild wird gespeichert … ${Math.round(done/urls.length*100)} %`}};
+    done++; pct(nR*WR+done,"Luftbild")}};
   await Promise.all(Array.from({length:6},work));
   // terrain and imagery are stored: list the area now, so it is kept even if the OSM step is cut short
   const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
@@ -1893,9 +1899,12 @@ async function offDownload(e){
   for(let i=0;i<p.regions.length;i++){
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
-    st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
+    const at=nR*WR+urls.length+i*WO, lbl=`Wege und Namen ${i+1} von ${nR}`; pct(at,lbl);
     if(failO>=2&&failO===i){failO=p.regions.length;break}   // server clearly down: skip the rest, retry later
-    const o1=await overpass(q1,base+"/main4",[],1,30000), o2=await overpass(q2,base+"/tracks6",[],1,30000); if(!o1||!o2)failO++;
+    // the server gives no progress, so creep forward while waiting (up to 90 % of this area's share)
+    const t0=Date.now(), tick=setInterval(()=>pct(at+WO*0.9*(1-Math.exp(-(Date.now()-t0)/15000)),lbl),1000);
+    const o1=await overpass(q1,base+"/main4",[],1,30000); pct(at+WO*0.5,lbl);
+    const o2=await overpass(q2,base+"/tracks6",[],1,30000); clearInterval(tick); if(!o1||!o2)failO++;
   }
   let est="";try{const q=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(q.usage/1e6)} MB.`}catch(err){}
   const miss=[failR?failR+" Geländestücke":"",failO?"Wege und Namen für "+failO+" Gebiete (OpenStreetMap-Server ausgelastet)":"",fail>urls.length*0.05?fail+" Bilder":""].filter(Boolean);
