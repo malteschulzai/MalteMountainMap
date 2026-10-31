@@ -871,7 +871,7 @@ function fetchTile(url){
   return new Promise(res=>{
     const run=async()=>{active++;
       const ac=new AbortController(), to=setTimeout(()=>ac.abort(),15000);
-      try{const r=await fetch(url,{mode:"cors",signal:ac.signal}); if(!r.ok)throw 0; res(await createImageBitmap(await r.blob()))}
+      try{const r=await fetch(url,{mode:"cors",signal:ac.signal}); if(!r.ok)throw 0; const b=await r.blob(), bm=await createImageBitmap(b); bm.png=b.type==="image/png"; res(bm)}
       catch(e){res(null)} finally{clearTimeout(to); active--; if(queue.length)queue.shift()()}};
     if(active<8)run(); else queue.push(run);
   });
@@ -893,7 +893,7 @@ function mbQuad(z,x,y){
   return mbTiles.get(k).then(bm=>bm?{bm,sx:(x&1)*256,sy:(y&1)*256}:null);
 }
 function orthoSrcName(){const c=META.center||[11.4,47.3], n=window.MMMSrc&&MMMSrc.sourceName(c[0],c[1]);
-  return n==="swisstopo"?"SWISSIMAGE swisstopo":n==="IGN"?"IGN":n==="Bayern"?"DOP Bayern":n==="basemap.at"||!n&&!window.MMMSrc?"basemap.at":c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8?"basemap.at, Sentinel-2":"Sentinel-2 (EOX)"}
+  return n==="swisstopo"?"SWISSIMAGE swisstopo":n==="IGN"?"IGN":n==="Bayern"?"DOP Bayern":n==="Südtirol"?"Orthofoto Südtirol":n==="basemap.at"||!n&&!window.MMMSrc?"basemap.at":c[0]>10.0&&c[0]<13.05&&c[1]>46.6&&c[1]<47.8?"basemap.at, Sentinel-2":"Sentinel-2 (EOX)"}
 async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
   const tileM=2*ORIGIN/2**z, res=tileM/256;
   const w=Math.ceil((mx1-mx0)/res), h=Math.ceil((my1-my0)/res);
@@ -906,6 +906,8 @@ async function renderOrtho(mx0,mx1,my0,my1,z,onProgress,transparent){
     const dx=(tx*tileM-ORIGIN-mx0)/res, dy=(my1-(ORIGIN-ty*tileM))/res;
     const nat=window.MMMSrc?MMMSrc.orthoUrl(z,tx,ty):null;
     jobs.push(fetchTile(nat||tileUrl(z,tx,ty)).then(async bm=>{
+      // South Tyrol answers with a (partly) transparent PNG outside the province: Sentinel-2 underneath
+      if(bm&&bm.png&&nat&&nat.includes("buergernetz")&&z<=15){const e=await fetchTile(eoxUrl(z,tx,ty)); if(e){ctx.drawImage(e,dx,dy,256,256);e.close&&e.close()}}
       if(bm){ok++;ctx.drawImage(bm,dx,dy,256,256);bm.close&&bm.close()}
       else if(z<=EOX_MAXZ){ // outside Austria: Mapbox Satellite with token, else Sentinel-2 cloudless (10 m)
         const q=MBT&&z>=2?await mbQuad(z,tx,ty):null;

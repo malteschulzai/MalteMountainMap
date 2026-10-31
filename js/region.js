@@ -1,4 +1,4 @@
-// Firstline Map: any place in the Alps: Land Tirol laser scan, swissALTI3D, IGN RGE ALTI, else Terrarium.
+// Firstline Map: any place in the Alps: Land Tirol laser scan, swissALTI3D, IGN RGE ALTI, else Mapterhorn (national laser scans).
 // Active when the URL has ?at=lon,lat[&n=name]. Builds the same data the app gets for the Nordkette:
 // 5 m terrain grid (Web Mercator), vegetation from surface minus terrain, tree positions, surrounding terrain.
 (function(){
@@ -68,6 +68,15 @@ function terrUrls(z,mx0,mx1,my0,my1){
     for(let tx=Math.floor((mx0+ORIGIN)/tileM);tx<=Math.floor((mx1+ORIGIN)/tileM);tx++)
       out.push({tx,ty,url:MBT&&z>=13?`https://api.mapbox.com/v4/mapbox.mapbox-terrain-dem-v1/${z}/${tx}/${ty}.pngraw?access_token=${MBT}`:`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${tx}/${ty}.png`});
   return out;
+}
+// Mapterhorn first (national laser scans merged, about 3 m at z14), the older AWS Terrarium tiles if that fails
+async function terrainGrid(mx0,mx1,my0,my1,nx,ny,z,onTile){
+  if(root.MMMSrc&&root.MMMSrc.mtGrid){
+    const out=new Float32Array(nx*ny).fill(NaN);
+    const got=await root.MMMSrc.mtGrid(mx0,mx1,my0,my1,nx,ny,false,z,out,onTile).catch(e=>{console.warn("Mapterhorn",e);return 0});
+    if(got>nx*ny*0.98){if(got<nx*ny)fillGaps(out,nx,ny); return out}
+  }
+  return terrariumGrid(mx0,mx1,my0,my1,nx,ny);
 }
 async function terrariumGrid(mx0,mx1,my0,my1,nx,ny){
   const z=DEMZ, tileM=2*ORIGIN/2**z, list=terrUrls(z,mx0,mx1,my0,my1), mb=MBT&&z>=13;
@@ -152,21 +161,23 @@ async function prefetchRaw(lon,lat,onBytes){
   const f=frame(lon,lat), zone=lon<11.75?28:31;
   const u=[wcsReq(zone===28?"Gelaendemodell_5m_M28":"Gelaendemodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,5).url,
            wcsReq(zone===28?"Oberflaechenmodell_5m_M28":"Oberflaechenmodell_50cm_M31",zone,f.x0,f.x1,f.y0,f.y1,10).url,
-           ...terrariumTiles(f.cx,f.cy,f.cosl), ...terrUrls(DEMZ,f.x0,f.x1,f.y0,f.y1).map(t=>t.url)];
+           ...terrariumTiles(f.cx,f.cy,f.cosl)];
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
   let err="";
   const natP=root.MMMSrc?root.MMMSrc.demGrid(f.x0,f.x1,f.y0,f.y1,f.W,f.H).catch(()=>null):Promise.resolve(null);
+  const mtP=terrainGrid(f.x0,f.x1,f.y0,f.y1,200,150,(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8)?13:14).then(g=>!!g).catch(()=>false);
   const res=await Promise.all(u.map((x,i)=>i<2&&!tirol?Promise.resolve(false):cachedFetch(x,i===0?onBytes:null).then(()=>true).catch(e=>{if(i===0)err=e.message||String(e);return false})));
-  await natP;
+  await natP; const mtOk=await mtP;
   // outside Tirol the Land Tirol request may fail, the global terrain is enough then
-  return {ok:res[0]||res.slice(3).some(Boolean),err};
+  return {ok:res[0]||mtOk,err};
 }
 async function buildRegion(lon,lat,name,sayFn){
   say=sayFn||(()=>{}); urls=[];
   const {cosl,res,cell,W,H,cx,cy,x0,y1,x1,y0}=frame(lon,lat);
   const src=root.MMMSrc&&root.MMMSrc.sourceName(lon,lat);
   say(lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8?"Gelände wird geladen …":src==="swisstopo"||src==="IGN"?`Gelände wird geladen (${src}) …`:"Gelände wird geladen …");
-  const ctxP=surroundings(cx,cy,cosl), terrP=terrariumGrid(x0,x1,y0,y1,W,H).catch(()=>null);
+  const tirolR=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;
+  const ctxP=surroundings(cx,cy,cosl), terrP=terrainGrid(x0,x1,y0,y1,W,H,tirolR?13:14,tirolR?null:f=>say(`Gelände wird geladen (Mapterhorn) … ${Math.round(f*100)} %`)).catch(()=>null);
   const VW=W/2, VH=H/2;
   const forestP=forestGrid(x0,x1,y0,y1,VW,VH).catch(()=>null);
   const tirol=lon>10.0&&lon<13.05&&lat>46.6&&lat<47.8;

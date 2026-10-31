@@ -20,11 +20,14 @@ function countriesIn(mx0,mx1,my0,my1){const s=new Set();
   return s}
 
 // ---- imagery ----
+const inBZ=(lon,lat)=>lon>10.35&&lon<12.53&&lat>46.17&&lat<47.15;
 function orthoUrl(z,x,y){
   const n=2**z, lon=(x+0.5)/n*360-180, lat=Math.atan(Math.sinh(Math.PI*(1-2*(y+0.5)/n)))/D2R, c=country(lon,lat);
   if((c==="CH"||c==="LI")&&z<=19)return `https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/${z}/${x}/${y}.jpeg`;
   if(c==="FR"&&z<=19)return `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET=PM&TILEMATRIX=${z}&TILEROW=${y}&TILECOL=${x}`;
   if(c==="DE"&&z<=19)return `https://wmtsod${1+(x+y)%3}.bayernwolke.de/wmts/by_dop/smerc/${z}/${x}/${y}`;
+  // South Tyrol: aerial images 2023 of the province (CC0); outside the province the service answers with a transparent PNG
+  if(c==="IT"&&inBZ(lon,lat)&&z<=19)return `https://geoservices.buergernetz.bz.it/mapproxy/ows?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=p_bz-Orthoimagery:Aerial-2023-RGB&STYLE=default&FORMAT=image/png&TILEMATRIXSET=EPSG_3857&TILEMATRIX=${String(z).padStart(2,"0")}&TILEROW=${y}&TILECOL=${x}`;
   return null;
 }
 
@@ -152,15 +155,43 @@ async function frGrid(mx0,mx1,my0,my1,nx,ny,corner,out,onTile){
   return got;
 }
 
+// ---- Mapterhorn: open terrain tiles merged from the national laser scans (BEV 1 m, Bozen 2.5 m, Trentino,
+// Lombardia, Piemonte, Aosta, Bayern 1 m, Slovenia, swissALTI3D, IGN ...), Terrarium-encoded 512 px WebP ----
+const MT="https://tiles.mapterhorn.com/", ORIG=Math.PI*R;
+const mkCv=(w,h)=>{if(typeof OffscreenCanvas!=="undefined")return new OffscreenCanvas(w,h);const c=document.createElement("canvas");c.width=w;c.height=h;return c};
+function mtTiles(mx0,mx1,my0,my1,z){const tileM=2*ORIG/2**z, pad=-tileM*1e-6, o=[];   // no neighbour tiles just for the outermost half pixel (clamped)
+  for(let ty=Math.floor((ORIG-(my1+pad))/tileM);ty<=Math.floor((ORIG-(my0-pad))/tileM);ty++)
+    for(let tx=Math.floor((mx0-pad+ORIG)/tileM);tx<=Math.floor((mx1+pad+ORIG)/tileM);tx++)o.push({tx,ty,url:`${MT}${z}/${tx}/${ty}.webp`});
+  return o}
+// fill the NaN samples of out (nx*ny, corner lattice or cell centres) from Mapterhorn zoom z; returns the number filled
+async function mtGrid(mx0,mx1,my0,my1,nx,ny,corner,z,out,onTile){
+  const tileM=2*ORIG/2**z, cell=tileM/512, list=mtTiles(mx0,mx1,my0,my1,z); if(!list.length||list.length>80)return 0;
+  const tx0=Math.min(...list.map(t=>t.tx)), ty0=Math.min(...list.map(t=>t.ty)), tw=Math.max(...list.map(t=>t.tx))-tx0+1, th=Math.max(...list.map(t=>t.ty))-ty0+1;
+  const cv=mkCv(tw*512,th*512), ctx=cv.getContext("2d",{willReadFrequently:true}); let ok=0, done=0;
+  await pool(list,6,async t=>{try{const buf=await cget(t.url,{timeout:20000}); const bm=await createImageBitmap(new Blob([buf],{type:"image/webp"})); ctx.drawImage(bm,(t.tx-tx0)*512,(t.ty-ty0)*512); ok++}catch(e){console.warn("Mapterhorn",e)}
+    done++; onTile&&onTile(done/list.length)});
+  if(!ok)return 0;
+  const px=ctx.getImageData(0,0,cv.width,cv.height).data, CW=cv.width, CHh=cv.height, ox=tx0*tileM-ORIG, oy=ORIG-ty0*tileM;
+  const at=(x,y)=>{x=Math.max(0,Math.min(CW-1,x));y=Math.max(0,Math.min(CHh-1,y));const i=(y*CW+x)*4;return px[i+3]<255?NaN:px[i]*256+px[i+1]+px[i+2]/256-32768};
+  const dx=(mx1-mx0)/(corner?nx-1:nx), dy=(my1-my0)/(corner?ny-1:ny), X0=corner?mx0:mx0+dx/2, Y0=corner?my1:my1-dy/2; let got=0;
+  for(let j=0;j<ny;j++){const my=Y0-j*dy, fy=(oy-my)/cell-0.5, y=Math.floor(fy), ay=fy-y;
+    for(let i=0;i<nx;i++){const k=j*nx+i; if(out[k]===out[k])continue;
+      const mx=X0+i*dx, fx=(mx-ox)/cell-0.5, x=Math.floor(fx), ax=fx-x;
+      const v=at(x,y)*(1-ax)*(1-ay)+at(x+1,y)*ax*(1-ay)+at(x,y+1)*(1-ax)*ay+at(x+1,y+1)*ax*ay;
+      if(v>-100&&v<5000){out[k]=v;got++}}}
+  return got;
+}
 // heights from national sources on a Web Mercator grid; NaN where none
 // corner=true: nx*ny lattice including the edges (detail tiles); else cell centres (region grid)
 async function demGrid(mx0,mx1,my0,my1,nx,ny,opt){
   opt=opt||{}; const out=new Float32Array(nx*ny).fill(NaN), cs=countriesIn(mx0,mx1,my0,my1); let got=0;
   if(cs.has("CH")||cs.has("LI"))got+=await chGrid(mx0,mx1,my0,my1,nx,ny,!!opt.corner,!!opt.fine,out,opt.onTile).catch(e=>{console.warn("swissALTI3D",e);return 0});
   if(cs.has("FR"))got+=await frGrid(mx0,mx1,my0,my1,nx,ny,!!opt.corner,out,opt.onTile).catch(e=>{console.warn("IGN",e);return 0});
+  // detail tiles everywhere else (and where a national service failed): Mapterhorn at about 1 m
+  if(opt.fine&&got<nx*ny)got+=await mtGrid(mx0,mx1,my0,my1,nx,ny,!!opt.corner,16,out).catch(e=>{console.warn("Mapterhorn",e);return 0});
   return got?out:null;
 }
 function sourceName(lon,lat){const c=country(lon,lat);
-  return c==="CH"||c==="LI"?"swisstopo":c==="FR"?"IGN":c==="DE"?"Bayern":c==="AT"?"basemap.at":null}
-root.MMMSrc={country,orthoUrl,demGrid,sourceName,lv95};
+  return c==="CH"||c==="LI"?"swisstopo":c==="FR"?"IGN":c==="DE"?"Bayern":c==="AT"?"basemap.at":c==="IT"&&inBZ(lon,lat)?"Südtirol":null}
+root.MMMSrc={country,orthoUrl,demGrid,sourceName,lv95,mtGrid,mtTiles};
 })(typeof window!=="undefined"?window:globalThis);
