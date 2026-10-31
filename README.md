@@ -1,5 +1,7 @@
 # Firstline Map
 
+© 2026 Malte Hangler-Schulz. Alle Rechte vorbehalten, siehe [LICENSE](LICENSE). Kopieren oder Weiterverwenden des Codes nur mit schriftlicher Erlaubnis.
+
 Persönliche 3D-Tourenkarte für die Alpen nach dem Vorbild von FATMAP: Skitouren und Bergtouren planen, Hangneigung, Lawinenlage, Hangsuche, offline nutzbar.
 
 Über die Suche oder `?at=lon,lat` wird ein Bereich von 10 × 7,5 km mit dem besten frei verfügbaren Gelände des jeweiligen Landes geladen (Tirol, Schweiz, Frankreich, sonst Terrarium). Nahe der Kamera kommen 1-m-Detailkacheln dazu.

@@ -103,6 +103,10 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .spt span{font:600 11px/1.1 var(--font-body);color:#1b2420;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .pmark.via{background:#fff;color:#1b2420;border-color:#1b2420;padding:3px 7px}
 .planbar{z-index:6}
+.rb.rec[aria-pressed="true"]{background:#e0342b;color:#fff}.rb.rec[aria-pressed="true"] circle:first-child{fill:#fff}
+.recdot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e0342b;margin-right:6px;vertical-align:0;animation:recblink 1.2s infinite}.recbar.paused .recdot{animation:none;background:#999}
+@keyframes recblink{50%{opacity:.25}}
+.recstats{grid-template-columns:repeat(3,1fr)}
 .tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
 .offsel{position:absolute;inset:0;z-index:6;pointer-events:none}
 .offframe{position:absolute;left:8%;right:8%;top:16%;bottom:34%;border:3px solid #1a73e8;border-radius:6px;box-shadow:0 0 0 4000px rgba(10,20,30,.4)}
@@ -239,6 +243,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <button class="rb" id="fit" aria-label="Auf Spur zoomen" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="rb txt" id="rbView" aria-label="Zwischen 3D und Draufsicht wechseln">2D</button>
       <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
+      <button class="rb rec" id="rbRec" aria-label="Tour aufzeichnen" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="#e0342b"/><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
       <button class="rb loc" id="locate" aria-label="Mein Standort" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
     </div>
     <div class="pad" id="pad" hidden>
@@ -292,6 +297,19 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <div id="pbInfo" style="font-size:14px;line-height:1.35">Tippe den Startpunkt in die Karte.</div>
       <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbHere">Standort</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
       <div class="hint" style="font-size:12px">Tippen auf die Linie fügt einen Zwischenpunkt ein, Tippen auf einen Punkt entfernt ihn.</div>
+    </div>
+    <div class="offbar planbar recbar" id="recBar" hidden>
+      <div class="row" style="justify-content:space-between;align-items:center"><b id="recState"><span class="recdot"></span>Aufzeichnung läuft</b><span class="hint" id="recGps">GPS wird gesucht …</span></div>
+      <div class="stats recstats">
+        <div class="stat"><b id="recTime">0:00</b><span>Zeit</span></div>
+        <div class="stat"><b id="recDist">0,0 km</b><span>Distanz</span></div>
+        <div class="stat"><b id="recUp">0 Hm</b><span>Aufstieg</span></div>
+        <div class="stat"><b id="recDown">0 Hm</b><span>Abstieg</span></div>
+        <div class="stat"><b id="recEle">–</b><span>Höhe</span></div>
+        <div class="stat"><b id="recSpeed">–</b><span>Hm/h</span></div>
+      </div>
+      <div class="row"><button class="btn" id="recPause">Pause</button><button class="btn" id="recCenter">Zu mir</button><button class="btn primary" id="recStop">Beenden</button></div>
+      <div class="hint" style="font-size:12px">Bildschirm bleibt an, solange die Aufzeichnung läuft. Bei gesperrtem Handy oder im Hintergrund stoppt der Browser das GPS.</div>
     </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -434,6 +452,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       </div>
 
       <div class="sec" data-tab="plan">
+        <h2>Aufzeichnungen</h2>
+        <div id="trkList"></div>
+      </div>
+
+      <div class="sec" data-tab="plan">
         <h2>Gespeicherte Punkte</h2>
         <div id="ptList"></div>
         <div class="row" style="margin-top:8px"><button class="btn" id="ptGpx">Alle Punkte als GPX</button></div>
@@ -496,12 +519,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=64"></script>
-<script src="js/config.js?v=64"></script>
-<script src="js/geo.js?v=64"></script>
-<script src="js/borders.js?v=64"></script>
-<script src="js/sources.js?v=64"></script>
-<script src="js/region.js?v=64"></script>
-<script src="js/app.js?v=64"></script>
+<script src="data/nordkette-meta.js?v=65"></script>
+<script src="js/config.js?v=65"></script>
+<script src="js/geo.js?v=65"></script>
+<script src="js/borders.js?v=65"></script>
+<script src="js/sources.js?v=65"></script>
+<script src="js/region.js?v=65"></script>
+<script src="js/app.js?v=65"></script>
 </body>
 </html>

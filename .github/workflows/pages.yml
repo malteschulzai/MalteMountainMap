@@ -27,6 +27,10 @@ jobs:
           mkdir -p osm
           if gh release download osm-data -p osm-data.tar.gz -D /tmp; then tar -xzf /tmp/osm-data.tar.gz -C osm && du -sh osm; else echo "noch keine OSM-Daten"; fi
           rm -rf tools
+      - name: Code verkleinern
+        run: |
+          for f in js/*.js sw.js; do npx -y terser@5.31.0 "$f" -c -m --comments false -o "$f.min" && mv "$f.min" "$f"; done
+          ls -la js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
