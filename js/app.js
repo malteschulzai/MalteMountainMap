@@ -1884,6 +1884,10 @@ async function offDownload(e){
     try{if(!(await caches.match(u))){const r=await fetch(u,{mode:"cors"});if(!r.ok)throw 0;const bl=await r.clone().blob();bytes+=bl.size;await cache.put(u,r)}else await cache.put(u,await caches.match(u))}catch(err){fail++}
     done++; if(done%20===0||done===urls.length)st.textContent=`Luftbild wird gespeichert … ${Math.round(done/urls.length*100)} %`}};
   await Promise.all(Array.from({length:6},work));
+  // terrain and imagery are stored: list the area now, so it is kept even if the OSM step is cut short
+  const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
+  areas.push({id:Date.now(),name,b,regions:p.regions,detail:+$("offDetail").value,km:p.km,mb:Math.round(p.mb),date:new Date().toISOString().slice(0,10)});
+  saveAreas(areas); renderAreas();
   // names, paths, pistes and lifts of every area (last, the OSM server is often the slowest part)
   let failO=0;
   for(let i=0;i<p.regions.length;i++){
@@ -1893,9 +1897,6 @@ async function offDownload(e){
     if(failO>=2&&failO===i){failO=p.regions.length;break}   // server clearly down: skip the rest, retry later
     const o1=await overpass(q1,base+"/main4",[],1,30000), o2=await overpass(q2,base+"/tracks6",[],1,30000); if(!o1||!o2)failO++;
   }
-  const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
-  areas.push({id:Date.now(),name,b,regions:p.regions,detail:+$("offDetail").value,km:p.km,mb:Math.round(p.mb),date:new Date().toISOString().slice(0,10)});
-  saveAreas(areas); renderAreas();
   let est="";try{const q=await navigator.storage.estimate();est=` Belegt insgesamt: ${fmt(q.usage/1e6)} MB.`}catch(err){}
   const miss=[failR?failR+" Geländestücke":"",failO?"Wege und Namen für "+failO+" Gebiete (OpenStreetMap-Server ausgelastet)":"",fail>urls.length*0.05?fail+" Bilder":""].filter(Boolean);
   st.textContent=(miss.length?`Gespeichert, aber es fehlen: ${miss.join(", ")}. Bei Empfang einfach nochmal herunterladen, Vorhandenes wird nicht doppelt geladen.`:"Bereich ist offline verfügbar, inklusive Wege und Namen.")+est;
