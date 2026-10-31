@@ -191,7 +191,7 @@ function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
   return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
 function skinTrack(axis,p,I){
   const {w,h,slope,dens}=T, skin=(p.skin||12)*Math.PI/180;
-  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=40&&dens[k]<75&&I[k]<2.6};
+  const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<=44&&dens[k]<75&&I[k]<2.9};   // steep gullies are still zigzagged up (Karrinne)
   // smooth and resample the corridor every cell (~10 m)
   let A=axis.map(k=>[k%w,(k-k%w)/w]);
   for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
