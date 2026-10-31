@@ -1110,6 +1110,29 @@ async function putTiles(cache,kind,els,i0,i1,j0,j1){
   return out;
 }
 const OLD_SUFFIX={main:["/main4"],tracks:["/tracks6"]}, OLD_FALLBACK={main:["/v3","/v2"],tracks:["/tracks5","/tracks4"]};
+// OSM data prepared once a month by a GitHub workflow from the Geofabrik Alps extract (tools/build_osm.py),
+// in files of 0.1 x 0.08 degrees = 4 x 4 cache tiles. Used before asking an Overpass server.
+let osmMetaP=null;
+function osmPrebuiltMeta(){
+  if(!osmMetaP)osmMetaP=fetch("osm/v1/meta.json",{cache:"no-cache"}).then(r=>r.ok?r.json():null).then(m=>{if(m)m.set={main:new Set(m.tiles.main),tracks:new Set(m.tiles.tracks)};return m}).catch(()=>null);
+  return osmMetaP;
+}
+function expandOsm(j){
+  const els=[];
+  for(const [id,x,y,tags] of j.n||[])els.push({type:"node",id,lon:x/1e5,lat:y/1e5,tags});
+  for(const [id,tags,f] of j.w||[]){let x=f[0],y=f[1]; const g=[{lon:x/1e5,lat:y/1e5}];
+    for(let k=2;k<f.length;k+=2){x+=f[k];y+=f[k+1];g.push({lon:x/1e5,lat:y/1e5})}
+    els.push({type:"way",id,tags,geometry:g})}
+  return els;
+}
+async function osmFromPrebuilt(kind,miss,cache,have){
+  const m=await osmPrebuiltMeta(); if(!m)return;
+  const big=new Set(miss.map(([i,j])=>Math.floor(i/4)+"_"+Math.floor(j/4)).filter(k=>m.set[kind].has(k)));
+  await Promise.all([...big].map(async k=>{
+    try{const r=await fetch(`osm/v1/${kind}/${k}.json`); if(!r.ok)return;
+      const [I,J]=k.split("_").map(Number), got=await putTiles(cache,kind,expandOsm(await r.json()),I*4,I*4+3,J*4,J*4+3);
+      for(const [kk,v] of got)have.set(kk,v)}catch(e){console.warn("OSM-Datei",k,e)}}));
+}
 async function osmArea(kind,box,opt){
   opt=opt||{}; const tiles=osmTiles(box); let cache=null;
   try{cache=await caches.open("mmm-osm")}catch(e){}
@@ -1124,6 +1147,7 @@ async function osmArea(kind,box,opt){
       if(i1>=i0&&j1>=j0){const got=await putTiles(cache,kind,(await r.json()).elements||[],i0,i1,j0,j1); for(const [k,v] of got)have.set(k,v)}
       miss=tiles.filter(([i,j])=>!have.has(i+","+j)); break}
   }
+  if(miss.length){await osmFromPrebuilt(kind,miss,cache,have); miss=tiles.filter(([i,j])=>!have.has(i+","+j))}
   let failed=false;
   if(miss.length){
     if(opt.onWait)opt.onWait(miss.length,tiles.length);

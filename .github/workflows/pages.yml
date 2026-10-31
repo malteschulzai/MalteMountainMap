@@ -1,0 +1,35 @@
+name: Seite veröffentlichen
+# Publishes the app together with the prepared OSM files (release asset "osm-data").
+# Needs Settings > Pages > Source: "GitHub Actions".
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: OSM-Daten dazulegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p osm
+          if gh release download osm-data -p osm-data.tar.gz -D /tmp; then tar -xzf /tmp/osm-data.tar.gz -C osm && du -sh osm; else echo "noch keine OSM-Daten"; fi
+          rm -rf tools
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

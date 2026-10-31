@@ -1,8 +1,44 @@
 name: OSM-Daten aufbereiten
+# Once a month: OpenStreetMap data of the Alps (Geofabrik extract) cut into small files for the app,
+# stored as release asset "osm-data", then the site is published again with it.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 2 * *"
+permissions:
+  contents: write
+  actions: write
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
-      - run: echo test
+      - uses: actions/checkout@v4
+      - name: osmium installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+      - name: Alpen-Auszug laden
+        run: curl -sSfL --retry 3 -o alps.osm.pbf https://download.geofabrik.de/europe/alps-latest.osm.pbf && ls -la alps.osm.pbf
+      - name: Filtern
+        run: |
+          osmium tags-filter alps.osm.pbf \
+            n/natural=peak,saddle n/tourism=alpine_hut,wilderness_hut n/aerialway=station \
+            w/piste:type=downhill,skitour w/aerialway w/railway=funicular \
+            w/highway=path,footway,bridleway,steps,track \
+            -o filtered.osm.pbf --overwrite
+          rm alps.osm.pbf; ls -la filtered.osm.pbf
+      - name: In Kacheln schneiden
+        run: |
+          osmium export filtered.osm.pbf -c tools/osmium-export.json -f geojsonseq \
+            --geometry-types=point,linestring -o - | python3 tools/build_osm.py out
+          du -sh out
+          tar -czf osm-data.tar.gz -C out v1 && ls -la osm-data.tar.gz
+      - name: Als Release speichern
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view osm-data >/dev/null 2>&1 || gh release create osm-data --title "OSM-Daten" --notes "Automatisch aufbereitete OpenStreetMap-Daten der Alpen, © OpenStreetMap-Mitwirkende (ODbL)."
+          gh release upload osm-data osm-data.tar.gz --clobber
+      - name: Seite neu veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml || true
