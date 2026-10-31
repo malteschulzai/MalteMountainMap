@@ -8,5 +8,5 @@ Echte Touren aus Garmin Connect als Referenz für die Tourenplanung.
 
 Hinweise zum Format:
 - GPX 1.1, Originaltrack der Uhr mit einem Punkt pro Sekunde (21.118 Punkte)
-- Jeder Punkt hat Höhe (Barometer der Uhr, nicht DEM-korrigiert), Zeit in UTC und Puls (`gpxtpx:hr`)
+- Jeder Punkt hat nur Position und Höhe (Barometer der Uhr, nicht DEM-korrigiert); Zeit und Puls wurden entfernt
 - Aufstieg, Übergänge und Abfahrt liegen in einem Segment

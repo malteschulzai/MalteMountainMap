@@ -2440,13 +2440,46 @@ function loadLeaflet(){
     const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";s.onload=res;s.onerror=()=>{ovLoad=null;rej(new Error("Leaflet"))};document.head.appendChild(s)});
   return ovLoad;
 }
+// relief tile for the overview: Mapterhorn heights -> hillshade, height colours, snow by season and slope, flat water
+async function reliefTile(c,cv){
+  const z=c.z, n=2**z, buf=await fetch(`https://tiles.mapterhorn.com/${z}/${c.x}/${c.y}.webp`).then(r=>{if(!r.ok)throw new Error(r.status);return r.blob()});
+  const bm=await createImageBitmap(buf), S=512, src=new OffscreenCanvas(S,S).getContext("2d",{willReadFrequently:true}); src.drawImage(bm,0,0);
+  const d=src.getImageData(0,0,S,S).data, E=new Float32Array(S*S);
+  for(let k=0;k<S*S;k++)E[k]=d[4*k]*256+d[4*k+1]+d[4*k+2]/256-32768;
+  const lat=Math.atan(Math.sinh(Math.PI*(1-2*(c.y+0.5)/n)))*180/Math.PI, px=40075016*Math.cos(lat*Math.PI/180)/(S*n);
+  const ex=z<9?2.2:z<11?1.6:1.2, win=state.season!=="summer", out=new ImageData(S,S), o=out.data;
+  const lx=-0.5,ly=-0.5,lz=0.707;   // light from the north-west
+  for(let y=0;y<S;y++)for(let x=0;x<S;x++){const k=y*S+x, xm=x?k-1:k, xp=x<S-1?k+1:k, ym=y?k-S:k, yp=y<S-1?k+S:k;
+    const gx=(E[xp]-E[xm])/((xp-xm)*px)*ex, gy=(E[yp]-E[ym])/(((yp-ym)/S)*px)*ex, e=E[k];
+    const nl=Math.hypot(gx,gy,1), sh=Math.max(0,(-gx*lx-gy*ly+lz)/nl), sl=Math.atan(Math.hypot(gx,gy)/ex)*57.3;
+    let r,g,b;
+    if(e<=0.5||(E[xp]===e&&E[xm]===e&&E[yp]===e&&E[ym]===e&&e>100)){r=52;g=104;b=150;o.set([r,g,b,255],4*k);continue}  // lakes, sea
+    // land: olive lowland, darker green with height, rock grey above
+    const t=Math.min(1,Math.max(0,(e-300)/1600)); r=128-30*t; g=134-26*t; b=98-18*t;
+    if(e>1900){const q=Math.min(1,(e-1900)/500); r=r+(146-r)*q; g=g+(140-g)*q; b=b+(128-b)*q}
+    // snow: lower on north faces, slides off very steep ground; summer only glaciers up high
+    const north=gy>0?Math.min(1,gy/Math.hypot(gx,gy)||0):0, line=win?1650-250*north:2950-200*north;
+    const snow=Math.min(1,Math.max(0,(e-line+150)/300))*(1-Math.min(1,Math.max(0,(sl-38)/14)));
+    r=r+(238-r)*snow; g=g+(241-g)*snow; b=b+(246-b)*snow;
+    const l=0.42+0.78*sh, cool=snow*(1-sh)*28;
+    o[4*k]=Math.min(255,r*l-cool*0.6); o[4*k+1]=Math.min(255,g*l-cool*0.3); o[4*k+2]=Math.min(255,b*l+cool*0.2); o[4*k+3]=255}
+  const tmp=new OffscreenCanvas(S,S); tmp.getContext("2d").putImageData(out,0,0);
+  const ctx=cv.getContext("2d"); ctx.imageSmoothingQuality="high"; ctx.drawImage(tmp,0,0,256,256);
+}
 async function openOverview(){
   $("overview").hidden=false; openPanel(null);
   try{await loadLeaflet()}catch(e){$("ovHint").textContent="Übersichtskarte gerade nicht erreichbar.";return}
   const [tx,ty]=targetGrid(), c=[yToLat(ty),xToLon(tx)];
   if(!ovMap){
     ovMap=L.map("ovMap",{zoomControl:false,maxBounds:[[42.5,3.5],[49.5,18.5]],minZoom:6,maxZoom:17,attributionControl:true}).setView(c,10);
-    L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{subdomains:"abc",maxZoom:17,attribution:'Karte © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), Daten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, SRTM'}).addTo(ovMap);
+    // like BEYOND: a quiet relief of the Alps, olive lowlands, snow-covered mountains, lakes, no clutter.
+    // Switchable to the topographic map with names and paths for orientation.
+    const relief=new (L.GridLayer.extend({createTile(c,done){const cv=document.createElement("canvas");cv.width=cv.height=256;reliefTile(c,cv).then(()=>done(null,cv)).catch(e=>done(e,cv));return cv}}))({maxZoom:17,maxNativeZoom:15,attribution:'Relief: <a href="https://mapterhorn.com/attribution">Mapterhorn</a> aus offenen Landesdaten'});
+    const topo=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{subdomains:"abc",maxZoom:17,attribution:'Karte © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), Daten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, SRTM'});
+    relief.addTo(ovMap); ovMap._base={relief,topo};
+    document.querySelectorAll("[data-ov]").forEach(b=>b.onclick=()=>{const k=b.dataset.ov;
+      for(const n in ovMap._base){if(n===k)ovMap._base[n].addTo(ovMap);else ovMap.removeLayer(ovMap._base[n])}
+      document.querySelectorAll("[data-ov]").forEach(x=>x.setAttribute("aria-pressed",x===b))});
     ovMap.on("click",e=>{const {lat,lng}=e.latlng, ok=inArea(lng,lat);
       const div=document.createElement("div"); div.innerHTML=ok?`<b>${fmt(lat,4)} N, ${fmt(lng,4)} O</b><br><button class="btn primary" style="margin-top:6px">Hier in 3D öffnen</button>`:"Außerhalb des Kartengebiets";
       if(ok)div.querySelector("button").onclick=()=>goTo(lng,lat,"");
@@ -2523,119 +2556,16 @@ $("ptGpx").onclick=()=>{
 };
 syncPtMarkers();
 
-// ---------- Recording: track a tour with the phone's GPS ----------
-// Points are kept in localStorage while recording (survives a reload or crash), finished tracks in the Cache API.
-const REC_KEY="lf-rec-active", TRK_CACHE="lf-tracks", TRK_INDEX="lf-track-index";
-const recBar=$("recBar"), recBtn=$("rbRec");
-let rec=null, recWatch=null, recLines=[], recTimer=null, recLock=null, recDrawT=0;
-const recStore=()=>{try{localStorage.setItem(REC_KEY,JSON.stringify(rec))}catch(e){}};
-const dur=ms=>{const m=Math.floor(ms/60000);return Math.floor(m/60)+":"+String(m%60).padStart(2,"0")};
-// height of a recorded point: laser scan terrain where the map is loaded (much steadier than GPS height), else GPS
-function recEle(p){const gx=lonToX(p[0]),gy=latToY(p[1]); return gx>=1&&gy>=1&&gx<W-2&&gy<H-2?heightGrid(gx,gy):p[2]}
-function trackStats(pts){
-  let dist=0,up=0,down=0,ref=null,maxE=-1e9;
-  for(let i=0;i<pts.length;i++){const p=pts[i], e=p[4]!=null?p[4]:p[2];
-    if(i)dist+=haversine({lon:pts[i-1][0],lat:pts[i-1][1]},{lon:p[0],lat:p[1]});
-    if(e!=null){maxE=Math.max(maxE,e); if(ref===null)ref=e; else if(e-ref>=4){up+=e-ref;ref=e} else if(ref-e>=4){down+=ref-e;ref=e}}}
-  return {dist,up,down,maxE};
+// ---------- Example tours (real GPS tracks, position and height only) ----------
+async function showTour(id){
+  let t; try{t=await (await fetch(`data/tours/${id}.json`)).json()}catch(e){statusEl.textContent="Beispieltour gerade nicht erreichbar";return}
+  const p0=t.pts[Math.floor(t.pts.length/2)], inside=t.pts.filter(p=>{const gx=lonToX(p[0]),gy=latToY(p[1]);return gx>=1&&gy>=1&&gx<W-1&&gy<H-1}).length;
+  if(inside<t.pts.length*0.9){try{sessionStorage.setItem("lf-show-tour",id)}catch(e){} goTo(p0[0],p0[1],t.name);return}
+  setRoute(t.pts.map(p=>[p[0],p[1]]),t.name,`${t.sub} · ${new Date(t.date).toLocaleDateString("de-AT")}`);
+  openPanel(null); fitRoute(is2D()?"2d":"3d");
 }
-function recElapsed(){if(!rec)return 0; return rec.acc+(rec.paused?0:Date.now()-rec.since)}
-function recUI(){
-  if(!rec){recBar.hidden=true;recBtn.setAttribute("aria-pressed","false");return}
-  recBar.hidden=false; recBtn.setAttribute("aria-pressed","true"); recBar.classList.toggle("paused",!!rec.paused);
-  $("recState").innerHTML=`<span class="recdot"></span>${rec.paused?"Pausiert":"Aufzeichnung läuft"}`;
-  $("recPause").textContent=rec.paused?"Weiter":"Pause";
-  const st=trackStats(rec.pts), t=recElapsed(), last=rec.pts[rec.pts.length-1];
-  $("recTime").textContent=dur(t); $("recDist").textContent=fmt(st.dist/1000,1)+" km";
-  $("recUp").textContent=fmt(Math.round(st.up))+" Hm"; $("recDown").textContent=fmt(Math.round(st.down))+" Hm";
-  $("recEle").textContent=last&&last[4]!=null?fmt(Math.round(last[4]))+" m":"–";
-  // climbing speed over the last 15 minutes
-  let v="–"; if(rec.pts.length>2){const t1=last[3], a=rec.pts.find(p=>p[3]>=t1-15*60000); if(a&&t1-a[3]>120000&&a[4]!=null&&last[4]!=null)v=fmt(Math.round((last[4]-a[4])/((t1-a[3])/3600000)))}
-  $("recSpeed").textContent=v;
-}
-function buildRecLine(){
-  recLines.forEach(l=>{scene.remove(l);l.geometry.dispose();l.material.dispose()}); recLines=[];
-  if(!rec||rec.pts.length<2){needsRender=true;return}
-  const p=[]; for(const q of rec.pts){const gx=lonToX(q[0]),gy=latToY(q[1]); if(gx<0||gy<0||gx>W-1||gy>H-1)continue; p.push((gx-W/2)*sc,meshTop(gx,gy)/U*state.exag+0.1,(gy-H/2)*sc)}
-  if(p.length<6){needsRender=true;return}
-  const res=new THREE.Vector2(mapEl.clientWidth,mapEl.clientHeight);
-  [[0xffffff,7],[0xe0342b,4]].forEach(([color,lw],i)=>{const g=new THREE.LineGeometry(); g.setPositions(p);
-    const l=new THREE.Line2(g,new THREE.LineMaterial({color,linewidth:lw,resolution:res,depthTest:true,depthWrite:i>0})); l.computeLineDistances(); l.renderOrder=3+i; scene.add(l); recLines.push(l)});
-  needsRender=true;
-}
-async function recWake(){try{if(rec&&!rec.paused&&navigator.wakeLock&&!recLock&&document.visibilityState==="visible"){recLock=await navigator.wakeLock.request("screen");recLock.addEventListener("release",()=>{recLock=null})}}catch(e){}}
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")recWake()});
-function recPoint(pos){
-  if(!rec||rec.paused)return;
-  const c=pos.coords; $("recGps").textContent=`GPS ±${fmt(Math.round(c.accuracy))} m`;
-  if(c.accuracy>60)return;                                   // too vague (first fixes, under trees)
-  const pt=[+c.longitude.toFixed(6),+c.latitude.toFixed(6),c.altitude!=null?Math.round(c.altitude*10)/10:null,pos.timestamp||Date.now()];
-  pt.push(Math.round(recEle(pt)*10)/10);
-  const last=rec.pts[rec.pts.length-1];
-  if(last){const d=haversine({lon:last[0],lat:last[1]},{lon:pt[0],lat:pt[1]});
-    if(d<Math.max(4,c.accuracy*0.5)&&pt[3]-last[3]<60000)return; // standing still: no zigzag of GPS noise
-    if(d>2000&&pt[3]-last[3]<30000)return}                     // jump
-  rec.pts.push(pt); recStore(); recUI();
-  if(Date.now()-recDrawT>4000){recDrawT=Date.now();buildRecLine()}
-}
-function recStartWatch(){
-  if(recWatch!==null)return;
-  recWatch=navigator.geolocation.watchPosition(recPoint,err=>{$("recGps").textContent=err.code===1?"Standort nicht erlaubt":"GPS gerade nicht verfügbar"},{enableHighAccuracy:true,maximumAge:0,timeout:60000});
-  if(meWatch===null)startLocate(true);
-}
-function recStopWatch(){if(recWatch!==null)navigator.geolocation.clearWatch(recWatch);recWatch=null}
-function startRec(){
-  if(!navigator.geolocation){statusEl.textContent="Dieser Browser kann den Standort nicht bestimmen.";return}
-  rec={id:Date.now(),start:Date.now(),since:Date.now(),acc:0,paused:false,pts:[]}; recStore();
-  recStartWatch(); recWake(); recUI(); openPanel(null);
-  clearInterval(recTimer); recTimer=setInterval(recUI,10000);
-}
-$("recPause").onclick=()=>{if(!rec)return;
-  if(rec.paused){rec.paused=false;rec.since=Date.now();recStartWatch();recWake()} else {rec.acc+=Date.now()-rec.since;rec.paused=true;recStopWatch();if(recLock){recLock.release();recLock=null}}
-  recStore(); recUI()};
-$("recCenter").onclick=()=>{if(me)centerOnMe(); else startLocate(false)};
-$("recStop").onclick=async()=>{
-  if(!rec)return;
-  if(rec.pts.length<2){if(confirmLike("Noch keine Punkte aufgezeichnet. Aufzeichnung verwerfen?"))endRec();return}
-  if(!rec.paused){rec.acc+=Date.now()-rec.since;rec.paused=true}
-  const st=trackStats(rec.pts), name=(prompt("Name der Tour:",(META.name&&META.name!=="Mein Standort"?META.name:"Tour")+" "+new Date(rec.start).toLocaleDateString("de-AT"))||"").trim()||"Tour";
-  const t={id:rec.id,name,start:rec.start,dur:rec.acc,dist:Math.round(st.dist),up:Math.round(st.up),down:Math.round(st.down),maxE:Math.round(st.maxE),n:rec.pts.length};
-  try{const c=await caches.open(TRK_CACHE); await c.put(`https://mmm.local/track/${t.id}`,new Response(JSON.stringify(rec.pts),{headers:{"Content-Type":"application/json"}}));
-    const idx=trkIndex(); idx.unshift(t); localStorage.setItem(TRK_INDEX,JSON.stringify(idx))}
-  catch(e){statusEl.textContent="Speichern fehlgeschlagen: "+e.message;return}
-  const pts=rec.pts; endRec();
-  setRoute(pts.map(p=>[p[0],p[1]]),name,"Aufgezeichnet "+new Date(t.start).toLocaleDateString("de-AT"));
-  renderTracks(); openPanel("plan"); statusEl.textContent=`„${name}“ gespeichert: ${fmt(t.dist/1000,1)} km, ${fmt(t.up)} Hm`;
-};
-const confirmLike=q=>window.confirm(q);
-function endRec(){rec=null;try{localStorage.removeItem(REC_KEY)}catch(e){} recStopWatch(); clearInterval(recTimer); if(recLock){recLock.release();recLock=null} buildRecLine(); recUI()}
-recBtn.onclick=()=>{if(rec){recBar.hidden=false;return} startRec()};
-function trkIndex(){try{return JSON.parse(localStorage.getItem(TRK_INDEX)||"[]")}catch(e){return []}}
-async function trkPoints(id){try{const r=await (await caches.open(TRK_CACHE)).match(`https://mmm.local/track/${id}`);return r?await r.json():null}catch(e){return null}}
-function trkGpx(t,pts){
-  const esc=s=>String(s).replace(/[<&>]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;"}[c]));
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firstline Map" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(t.name)}</name><trkseg>\n`+
-    pts.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}">${p[4]!=null||p[2]!=null?`<ele>${(p[4]!=null?p[4]:p[2]).toFixed(1)}</ele>`:""}<time>${new Date(p[3]).toISOString()}</time></trkpt>`).join("\n")+`\n</trkseg></trk>\n</gpx>\n`;
-}
-function renderTracks(){
-  const box=$("trkList"); if(!box)return; const idx=trkIndex(); box.innerHTML="";
-  if(!idx.length){box.innerHTML='<p class="hint">Noch keine Aufzeichnungen. Starte eine mit dem roten Knopf rechts auf der Karte.</p>';return}
-  idx.forEach(t=>{const d=document.createElement("div");d.className="offitem";
-    d.innerHTML=`<div><b>${escapeHtml(t.name)}</b>${new Date(t.start).toLocaleDateString("de-AT")} · ${fmt(t.dist/1000,1)} km · ${fmt(t.up)} Hm · ${dur(t.dur)} h</div><div class="row"><button class="btn" data-go>Zeigen</button><button class="btn" data-gpx>GPX</button><button class="btn" data-del>Löschen</button></div>`;
-    d.querySelector("[data-go]").onclick=async()=>{const pts=await trkPoints(t.id); if(!pts)return;
-      const p0=pts[0], gx=lonToX(p0[0]), gy=latToY(p0[1]);
-      if(gx<1||gy<1||gx>=W-1||gy>=H-1){goTo(p0[0],p0[1],t.name);return}
-      setRoute(pts.map(p=>[p[0],p[1]]),t.name,"Aufgezeichnet "+new Date(t.start).toLocaleDateString("de-AT")); openPanel(null); fitRoute(is2D()?"2d":"3d")};
-    d.querySelector("[data-gpx]").onclick=async()=>{const pts=await trkPoints(t.id); if(!pts)return;
-      const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([trkGpx(t,pts)],{type:"application/gpx+xml"})); a.download=t.name.replace(/[^\wäöüÄÖÜß -]/g,"")+".gpx"; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)};
-    d.querySelector("[data-del]").onclick=async()=>{if(!confirmLike(`„${t.name}“ löschen?`))return;
-      try{await (await caches.open(TRK_CACHE)).delete(`https://mmm.local/track/${t.id}`)}catch(e){}
-      localStorage.setItem(TRK_INDEX,JSON.stringify(trkIndex().filter(x=>x.id!==t.id))); renderTracks()};
-    box.appendChild(d)});
-}
-renderTracks();
-// a recording that was running when the page was closed or reloaded goes on
-try{const r=JSON.parse(localStorage.getItem(REC_KEY)||"null"); if(r&&r.pts){rec=r; recUI(); buildRecLine(); if(!rec.paused){recStartWatch();recWake()} recTimer=setInterval(recUI,10000)}}catch(e){}
+document.querySelectorAll("[data-tour]").forEach(b=>b.onclick=()=>showTour(b.dataset.tour));
+try{const t=sessionStorage.getItem("lf-show-tour"); if(t){sessionStorage.removeItem("lf-show-tour"); setTimeout(()=>showTour(t),600)}}catch(e){}
 
 // ---------- Season: one tap between winter (snow model, pistes, ski tours) and summer (photo, paths, hikes) ----------
 function setSeason(season){
@@ -2653,9 +2583,27 @@ $("qSeason").onclick=()=>setSeason(state.season==="summer"?"winter":"summer");
 seasonChip(); if(state.season==="summer")setPlanMode("hike");
 
 // ---------- App install ----------
-let installEvt=null;
-window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;$("installBtn").hidden=false});
-$("installBtn").onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){} installEvt=null;$("installBtn").hidden=true};
+let installEvt=window.__bip||null;
+// add to home screen: the browser's own install dialog where it offers one (Chrome, Edge, Samsung Internet),
+// otherwise the steps for the browser in use
+const standalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=window.__bip=e});
+window.addEventListener("appinstalled",()=>{installEvt=null;$("installHint").textContent="Installiert. Firstline Map findest du jetzt als App-Icon auf dem Startbildschirm."});
+function installSteps(){
+  const ua=navigator.userAgent;
+  if(/iPhone|iPad|iPod/.test(ua))return "iPhone: unten auf Teilen (Quadrat mit Pfeil) tippen, dann „Zum Home-Bildschirm“.";
+  if(/SamsungBrowser/.test(ua))return "Samsung Internet: unten rechts auf das Menü (☰) tippen, dann „Seite hinzufügen zu“ und „Startbildschirm“.";
+  if(/Firefox/.test(ua))return "Firefox: oben rechts auf ⋮ tippen, dann „Installieren“ oder „Zum Startbildschirm hinzufügen“.";
+  if(/EdgA/.test(ua))return "Edge: unten auf ··· tippen, dann „Zum Telefon hinzufügen“.";
+  return "Chrome: oben rechts auf ⋮ tippen, dann „Zum Startbildschirm hinzufügen“ oder „App installieren“.";
+}
+$("installBtn").onclick=async()=>{
+  if(standalone()){$("installHint").textContent="Du nutzt Firstline Map schon als App vom Startbildschirm.";return}
+  if(installEvt){installEvt.prompt(); let ok=false; try{ok=(await installEvt.userChoice).outcome==="accepted"}catch(e){} installEvt=null;
+    $("installHint").textContent=ok?"Wird installiert …":installSteps(); return}
+  $("installHint").textContent=installSteps();
+};
+if(standalone())$("installBtn").textContent="Als App installiert";
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(e=>console.warn("SW",e))}
 
 // ---------- Collapsible panel ----------

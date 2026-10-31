@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#1b2420">
 <link rel="manifest" href="manifest.webmanifest">
+<script>addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__bip=e})</script>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
@@ -103,10 +104,6 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .spt span{font:600 11px/1.1 var(--font-body);color:#1b2420;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .pmark.via{background:#fff;color:#1b2420;border-color:#1b2420;padding:3px 7px}
 .planbar{z-index:6}
-.rb.rec[aria-pressed="true"]{background:#e0342b;color:#fff}.rb.rec[aria-pressed="true"] circle:first-child{fill:#fff}
-.recdot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#e0342b;margin-right:6px;vertical-align:0;animation:recblink 1.2s infinite}.recbar.paused .recdot{animation:none;background:#999}
-@keyframes recblink{50%{opacity:.25}}
-.recstats{grid-template-columns:repeat(3,1fr)}
 .tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
 .offsel{position:absolute;inset:0;z-index:6;pointer-events:none}
 .offframe{position:absolute;left:8%;right:8%;top:16%;bottom:34%;border:3px solid #1a73e8;border-radius:6px;box-shadow:0 0 0 4000px rgba(10,20,30,.4)}
@@ -119,7 +116,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .stn{position:absolute;left:0;top:0;pointer-events:auto;border:0;font:700 11px/1 var(--font-body);color:#fff;background:#1f4ea3;border-radius:6px;padding:4px 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer;font-variant-numeric:tabular-nums}
 .stn::after{content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);border:4px solid transparent;border-top-color:#1f4ea3;border-bottom:0}
 .stn i{font-style:normal;color:#9fd8ff}
-.overview{position:absolute;inset:0;z-index:7;background:#e8ecef}
+.overview{position:absolute;inset:0;z-index:7;background:#7d8460}
+.overview .ovbar{background:rgba(18,21,25,.88);color:#f2f4f5;backdrop-filter:blur(6px)}.overview .ovbar .hint{color:#b9c0c6}.overview .ovbar .chip{background:rgba(255,255,255,.1);color:#e9edf0;border-color:transparent}.overview .ovbar .chip[aria-pressed="true"]{background:#fff;color:#14181c}
+.overview .leaflet-container{background:#7d8460}
 #ovMap{position:absolute;inset:0;bottom:var(--bar)}
 .ovbar{position:absolute;left:12px;right:12px;top:calc(max(10px,env(safe-area-inset-top,0px)));z-index:500;padding:10px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between}
 .overview .leaflet-popup-content{font:14px var(--font-body)}
@@ -243,7 +242,6 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <button class="rb" id="fit" aria-label="Auf Spur zoomen" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <button class="rb txt" id="rbView" aria-label="Zwischen 3D und Draufsicht wechseln">2D</button>
       <canvas class="globe" id="globe" tabindex="0" role="button" aria-expanded="false" aria-controls="pad" aria-label="Globus: ziehen zum Drehen und Kippen, antippen für Pfeiltasten"></canvas>
-      <button class="rb rec" id="rbRec" aria-label="Tour aufzeichnen" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="#e0342b"/><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
       <button class="rb loc" id="locate" aria-label="Mein Standort" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
     </div>
     <div class="pad" id="pad" hidden>
@@ -276,9 +274,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       <div class="chipbar" role="group" aria-label="Schnellauswahl">
         <button class="qchip" id="qOverview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg> Übersicht</button>
         <button class="qchip" id="qLayers">Ebenen <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="qchip" data-proxy="lySlope">Hangneigung</button>
         <button class="qchip" id="qAval" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M7 21l5-7 5 7M10 17l2-3 2 3"/></svg> Lawine</button>
         <button class="qchip" id="qSeason" aria-pressed="true">Winter</button>
-        <button class="qchip" data-proxy="lySlope">Hangneigung</button>
         <button class="qchip" id="qSlopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg> Hangsuche</button>
         <button class="qchip" data-proxy="lyAspect">Exposition</button>
         <button class="qchip" data-proxy="lyPaths">Wege</button>
@@ -290,26 +288,14 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 
     <div class="overview" id="overview" hidden>
       <div id="ovMap"></div>
-      <div class="ovbar card"><div><b>Übersicht</b><div class="hint" id="ovHint">Tippe einen Ort an, um ihn in 3D zu öffnen. Blau: geladenes Gebiet, grün: offline gespeichert.</div></div><button class="btn primary" id="ovClose">Zurück zu 3D</button></div>
+      <div class="ovbar card"><div><b>Übersicht</b><div class="hint" id="ovHint">Tippe einen Ort an, um ihn in 3D zu öffnen.</div>
+        <div class="row" style="margin-top:6px" role="group" aria-label="Kartenart"><button class="chip" data-ov="relief" aria-pressed="true">Relief</button><button class="chip" data-ov="topo" aria-pressed="false">Topo mit Namen</button></div></div><button class="btn primary" id="ovClose">Zurück zu 3D</button></div>
     </div>
     <div class="offbar planbar" id="planBar" hidden>
       <div class="row" style="justify-content:space-between"><div class="row" role="group" aria-label="Tourart"><button class="chip" data-pmode="ski" aria-pressed="true">Skitour</button><button class="chip" data-pmode="hike" aria-pressed="false">Bergtour</button></div><button class="btn" id="pbSettings">Einstellungen</button></div>
       <div id="pbInfo" style="font-size:14px;line-height:1.35">Tippe den Startpunkt in die Karte.</div>
       <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbHere">Standort</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
       <div class="hint" style="font-size:12px">Tippen auf die Linie fügt einen Zwischenpunkt ein, Tippen auf einen Punkt entfernt ihn.</div>
-    </div>
-    <div class="offbar planbar recbar" id="recBar" hidden>
-      <div class="row" style="justify-content:space-between;align-items:center"><b id="recState"><span class="recdot"></span>Aufzeichnung läuft</b><span class="hint" id="recGps">GPS wird gesucht …</span></div>
-      <div class="stats recstats">
-        <div class="stat"><b id="recTime">0:00</b><span>Zeit</span></div>
-        <div class="stat"><b id="recDist">0,0 km</b><span>Distanz</span></div>
-        <div class="stat"><b id="recUp">0 Hm</b><span>Aufstieg</span></div>
-        <div class="stat"><b id="recDown">0 Hm</b><span>Abstieg</span></div>
-        <div class="stat"><b id="recEle">–</b><span>Höhe</span></div>
-        <div class="stat"><b id="recSpeed">–</b><span>Hm/h</span></div>
-      </div>
-      <div class="row"><button class="btn" id="recPause">Pause</button><button class="btn" id="recCenter">Zu mir</button><button class="btn primary" id="recStop">Beenden</button></div>
-      <div class="hint" style="font-size:12px">Bildschirm bleibt an, solange die Aufzeichnung läuft. Bei gesperrtem Handy oder im Hintergrund stoppt der Browser das GPS.</div>
     </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -452,8 +438,9 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       </div>
 
       <div class="sec" data-tab="plan">
-        <h2>Aufzeichnungen</h2>
-        <div id="trkList"></div>
+        <h2>Beispieltour</h2>
+        <div class="offitem"><div><b>Karrinne</b>Splitboardtour Nordkette, 27.11.2025 · 13,6 km · 1.440 Hm · Hungerburg bis unter die Hafelekarspitze</div><div class="row"><button class="btn" data-tour="karrinne">Zeigen</button></div></div>
+        <p class="hint">Echter GPS-Track, nur Position und Höhe.</p>
       </div>
 
       <div class="sec" data-tab="plan">
@@ -483,10 +470,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p class="hint">Wähle in der Draufsicht einen Bereich. Gelände, Wald, Luftbild, Namen, Wege und Pisten werden auf dem Gerät gespeichert. Hangneigung, Exposition, Winter-Modell, Schatten, Hangsuche und Tourenplanung funktionieren dort dann auch ohne Empfang.</p>
         <div class="row" style="margin-top:8px">
           <button class="btn primary" id="offPick">Bereich auswählen</button>
-          <button class="btn" id="installBtn" hidden>Als App installieren</button>
         </div>
         <div id="offList"></div>
         <p class="hint" id="offlineStatus" style="margin-top:6px" aria-live="polite"></p>
+        <h2 style="margin-top:14px">Als App auf dem Handy</h2>
+        <p class="hint">Mit dem App-Icon auf dem Startbildschirm startet Firstline Map wie eine App, im Vollbild und auch ohne Empfang.</p>
+        <div class="row" style="margin-top:8px"><button class="btn primary" id="installBtn">Zum Startbildschirm hinzufügen</button></div>
+        <p class="hint" id="installHint" style="margin-top:6px" aria-live="polite"></p>
       </div>
 
       <div class="sec" data-tab="info">
@@ -519,12 +509,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=68"></script>
-<script src="js/config.js?v=68"></script>
-<script src="js/geo.js?v=68"></script>
-<script src="js/borders.js?v=68"></script>
-<script src="js/sources.js?v=68"></script>
-<script src="js/region.js?v=68"></script>
-<script src="js/app.js?v=68"></script>
+<script src="data/nordkette-meta.js?v=69"></script>
+<script src="js/config.js?v=69"></script>
+<script src="js/geo.js?v=69"></script>
+<script src="js/borders.js?v=69"></script>
+<script src="js/sources.js?v=69"></script>
+<script src="js/region.js?v=69"></script>
+<script src="js/app.js?v=69"></script>
 </body>
 </html>
