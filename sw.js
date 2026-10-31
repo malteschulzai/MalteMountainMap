@@ -1,5 +1,5 @@
 // Firstline Map service worker: offline app shell, saved areas, cached map tiles.
-const SHELL="mmm-shell-v60", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
+const SHELL="mmm-shell-v61", RUNTIME="mmm-runtime-v1", OFFLINE="mmm-offline-v1", RUNTIME_MAX=1500;
 const SHELL_FILES=["./","index.html","manifest.webmanifest","icon.svg","icon-192.png","icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(SHELL).then(c=>Promise.all(SHELL_FILES.map(u=>c.add(u).catch(()=>{})))).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("mmm-shell-")&&k!==SHELL).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
@@ -9,8 +9,8 @@ async function trim(){const c=await caches.open(RUNTIME);const ks=await c.keys()
 self.addEventListener("fetch",e=>{
   const req=e.request; if(req.method!=="GET")return;
   const u=new URL(req.url);
-  // live data (avalanche bulletin, stations): network first, last copy when offline
-  if(u.hostname==="static.avalanche.report"||u.hostname==="regions.avalanches.org"){
+  // live data (avalanche bulletins, stations, weather): network first, last copy when offline
+  if(/^(static\.avalanche\.report|regions\.avalanches\.org|public-meas-data-v2\.slf\.ch|dataset\.api\.hub\.geosphere\.at|api\.open-meteo\.com)$/.test(u.hostname)){
     e.respondWith((async()=>{try{const r=await fetch(req);if(r.ok){const c=await caches.open("mmm-live");c.put(req.url,r.clone())}return r}catch(err){return (await caches.match(req.url))||Response.error()}})());
     return;
   }

@@ -202,9 +202,9 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
+const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,snowfc:false,fcHours:72,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
 // settings survive switching to another area of Tirol
-const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","winter","wind","snow","lineN","lineS","exag"];
+const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","snowfc","fcHours","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
 // restored only when the page was opened by switching to another area, a fresh start uses the defaults
 if(REG&&new URLSearchParams(location.search).has("t"))try{const s=JSON.parse(sessionStorage.getItem("mmm-state")||"null"); if(s)SAVE_KEYS.forEach(k=>{if(k in s&&typeof s[k]===typeof state[k])state[k]=s[k]})}catch(e){}
@@ -320,7 +320,7 @@ const aspectTex=(()=>{const a=new Uint8Array(N);for(let k=0;k<N;k++)a[k]=aspect[
 function blank0(){const b=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1,THREE.RGBAFormat);b.needsUpdate=true;return b}
 
 const shared={
-  dangerMap:{value:blank0()}, showDanger:{value:0}, aoMap:{value:blank0()}, aoAmt:{value:0}, forestMap:{value:blank0()}, hasForest:{value:0}, showForest:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
+  dangerMap:{value:blank0()}, showDanger:{value:0}, snowFcMap:{value:blank0()}, showSnowFc:{value:0}, aoMap:{value:blank0()}, aoAmt:{value:0}, forestMap:{value:blank0()}, hasForest:{value:0}, showForest:{value:0}, searchMap:{value:blank0()}, showSearch:{value:0},
   globalMap:{value:blank}, dataMap:{value:dataTex}, vegMap:{value:blank0()}, aspectMap:{value:aspectTex}, showAspect:{value:0}, sgMap:{value:blank0()}, showSG:{value:0}, globalShade:{value:blank0()}, orthoReady:{value:0}, shadeReady:{value:0}, bury:{value:0.35}, crownSnow:{value:0.65},
   mode:{value:0}, showSlope:{value:0}, showContour:{value:0}, winter:{value:0},
   camPos:{value:new THREE.Vector3()}, haze:{value:new THREE.Color(0xd3e0ea)},
@@ -343,7 +343,7 @@ uniform sampler2D sgMap;
 uniform sampler2D maskMap, fineSlope, aoMap, searchMap;
 uniform float aoAmt, showSearch;
 uniform sampler2D forestMap; uniform float hasForest, showForest;
-uniform sampler2D dangerMap; uniform float showDanger;
+uniform sampler2D dangerMap; uniform float showDanger; uniform sampler2D snowFcMap; uniform float showSnowFc;
 uniform float exag, rockLo, rockHi;
 varying vec3 vNrm;
 uniform float useLocal, useLocalShade, orthoReady, shadeReady, mode, showSlope, showContour, winter, fogNear, fogFar, bury, crownSnow;
@@ -466,6 +466,8 @@ void main(){
     if(t>0.08){ vec3 fc=t<0.35?vec3(.30,.75,.30):t<0.65?vec3(.95,.70,.15):vec3(.80,.18,.15); col=mix(col,fc,0.5*smoothstep(0.08,0.15,t)); } }
   if(showDanger>0.5){ float lv=floor(texture2D(dangerMap,dUv).r*255.0/50.0+0.5);
     if(lv>0.5){ vec3 dc=lv<1.5?vec3(.80,1.0,.40):lv<2.5?vec3(1.0,1.0,0.0):lv<3.5?vec3(1.0,.60,0.0):lv<4.5?vec3(1.0,0.0,0.0):vec3(.63,0.0,0.0); col=mix(col,dc,0.42); } }
+  if(showSnowFc>0.5){ float cm=texture2D(snowFcMap,dUv).r*255.0;
+    if(cm>=2.0){ vec3 nc=cm<10.0?vec3(.72,.86,1.0):cm<20.0?vec3(.42,.68,1.0):cm<40.0?vec3(.18,.42,.92):cm<70.0?vec3(.42,.20,.80):vec3(.80,.15,.70); col=mix(col,nc,0.5); } }
   // ambient occlusion: gullies and valley floors see less sky
   if(aoAmt>0.0){ float ao=texture2D(aoMap,dUv).r; col*=mix(1.0,0.8+0.2*ao,aoAmt); }
   if(showSearch>0.5){ float m=texture2D(searchMap,dUv).r; if(m>0.35) col=mix(col,vec3(0.0,0.78,1.0),0.55*smoothstep(0.35,0.7,m)); }
@@ -1387,6 +1389,10 @@ function showPoint(gx,gy){
   if(sgv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">SNOWGRID: ${fmt(Math.round(sgv))} cm (Mittel der 1-km-Zelle)</span>`;$("pointInfo").appendChild(d)}
   const w=osmWays.length?nearestWay(gx,gy):null;
   if(w){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub" style="color:var(--ink)"><b>${escapeHtml(w.label)}</b></span>`;$("pointInfo").appendChild(d)}
+  const fv=snowFcAt(gx,gy);
+  if(fv!==null){const d=document.createElement("div");d.className="point";d.innerHTML=`<span class="sub">Neuschnee-Prognose ${state.fcHours} h: etwa ${fmt(Math.round(fv))} cm</span>`;$("pointInfo").appendChild(d)}
+  const wb=document.createElement("div"); wb.className="row"; wb.style.marginTop="8px"; wb.innerHTML='<button class="btn" id="wxBtn">Wetter hier</button>'; $("pointInfo").appendChild(wb);
+  $("wxBtn").onclick=()=>weatherCard(gx,gy,wb);
   if(typeof pointSaveUI==="function")pointSaveUI(gx,gy);
 }
 
@@ -1585,6 +1591,7 @@ $("sgDate").addEventListener("change",()=>{if(state.snowgrid)loadSnowgrid()});
 // ---------- Controls ----------
 function applyUniforms(){
   shared.mode.value=state.base==="ortho"?0:1; shared.aoAmt.value=state.ao&&aoReady?1:0; shared.showForest.value=state.forest?1:0; $("legendForest").hidden=!state.forest;
+  shared.showSnowFc.value=state.snowfc&&snowFcReady?1:0; $("legendSnowFc").hidden=!state.snowfc;
   shared.showDanger.value=state.danger?1:0; $("legendDanger").hidden=!state.danger; $("qAval").setAttribute("aria-pressed",state.danger); needsRender=true;
   shared.showSlope.value=state.slope?1:0; shared.showContour.value=state.contour?1:0; shared.showAspect.value=state.aspect?1:0;
   $("legendAspect").hidden=!state.aspect;
@@ -1597,7 +1604,7 @@ function applyUniforms(){
 function setBase(b){state.base=b;$("bmOrtho").setAttribute("aria-pressed",b==="ortho");$("bmRelief").setAttribute("aria-pressed",b==="relief");applyUniforms();if(b==="ortho")scheduleLOD()}
 $("bmOrtho").onclick=()=>setBase("ortho");
 $("bmRelief").onclick=()=>setBase("relief");
-[["lyDanger","danger"],["lyStations","stations"],["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"]].forEach(([id,key])=>{
+[["lyDanger","danger"],["lyStations","stations"],["lyForest","forest"],["lyAo","ao"],["lySlope","slope"],["lyAspect","aspect"],["lyTrees","trees"],["lyContour","contour"],["lyRoute","route"],["lyLabels","labels"],["lyWinter","winter"],["lyPistes","pistes"],["lyPaths","paths"],["lySnowgrid","snowgrid"],["lySnowFc","snowfc"]].forEach(([id,key])=>{
   $(id).onclick=async()=>{
     state[key]=!state[key];$(id).setAttribute("aria-pressed",state[key]);
     if(key==="winter"&&state.winter)await computeWinter();
@@ -1607,6 +1614,7 @@ $("bmRelief").onclick=()=>setBase("relief");
     if(key==="snowgrid"&&state.snowgrid&&!sgPts)await loadSnowgrid();
     if(key==="danger"&&state.danger)await buildDanger().catch(()=>{statusEl.textContent="Lagebericht gerade nicht erreichbar"});
     if(key==="stations"&&state.stations)await loadStations();
+    if(key==="snowfc"&&state.snowfc)await buildSnowFc();
     applyUniforms();
   };
 });
@@ -2065,7 +2073,8 @@ $("hsRun").onclick=slopeSearch;
 $("hsClear").onclick=()=>{shared.showSearch.value=0;needsRender=true;$("hsResult").innerHTML=""};
 hsUI();
 
-// ---------- Avalanche bulletin (Euregio Tirol, Südtirol, Trentino) and weather stations ----------
+// ---------- Avalanche bulletins of every Alpine warning service (EAWS data on avalanche.report) and weather stations ----------
+const EAWS_URL="https://static.avalanche.report/eaws_bulletins/";
 const BULL_URL="https://static.avalanche.report/bulletins/latest/EUREGIO_de_CAAMLv6.json";
 const STN_URL="https://static.avalanche.report/weather_stations/stations.geojson";
 const DLV={low:1,moderate:2,considerable:3,high:4,very_high:5};
@@ -2073,20 +2082,59 @@ const DLN=["keine Angabe","1 gering","2 mäßig","3 erheblich","4 groß","5 sehr
 const DLC=["#c8c8c8","#ccff66","#ffff00","#ff9900","#ff0000","#a00000"];
 const PROB={new_snow:"Neuschnee",wind_slab:"Triebschnee",persistent_weak_layers:"Altschnee",wet_snow:"Nassschnee",gliding_snow:"Gleitschnee",cornices:"Wechten",favourable_situation:"Günstige Situation",no_distinct_avalanche_problem:"Kein ausgeprägtes Problem"};
 const ASP={N:0,NE:1,E:2,SE:3,S:4,SW:5,W:6,NW:7}, ASPN=["N","NO","O","SO","S","SW","W","NW"];
-const LWD={by:null,regions:null,pub:null,valid:null,err:null};
+// Alpine warning services with the area their micro-regions cover (lon/lat box)
+const AVAL_SERVICES={
+  "AT-02":["Lawinenwarndienst Kärnten",[12.66,46.37,15.07,47.13],"https://lawinenwarndienst.ktn.gv.at"],
+  "AT-03":["Lawinenwarndienst Niederösterreich",[14.47,47.42,16.37,48.17],"https://www.lawinenwarndienst-niederoesterreich.at"],
+  "AT-04":["Lawinenwarndienst Oberösterreich",[13.44,47.46,14.77,48.03],"https://www.land-oberoesterreich.gv.at/lawinenwarndienst.htm"],
+  "AT-05":["Lawinenwarndienst Salzburg",[12.08,46.94,14.0,47.83],"https://lawine.salzburg.at"],
+  "AT-06":["Lawinenwarndienst Steiermark",[13.56,46.64,16.17,47.83],"https://www.lawine-steiermark.at"],
+  "AT-07":["Lawinenwarndienst Tirol",[10.1,46.65,12.96,47.74],"https://lawinen.report"],
+  "AT-08":["Lawinenwarndienst Vorarlberg",[9.53,46.84,10.24,47.6],"https://www.vorarlberg.at/lawine"],
+  "CH":["SLF Davos",[5.95,45.82,10.49,47.81],"https://whiterisk.ch"],
+  "DE-BY":["Lawinenwarndienst Bayern",[9.97,47.27,13.1,47.83],"https://www.lawinenwarndienst-bayern.de"],
+  "FR":["Météo-France",[5.0,43.7,7.8,46.4],"https://meteofrance.com/meteo-montagne"],
+  "IT-21":["ARPA Piemonte",[6.63,44.06,8.7,46.46],"https://www.arpa.piemonte.it"],
+  "IT-23":["Regione Valle d'Aosta",[6.8,45.47,7.94,45.99],"https://bollettinovalanghe.regione.vda.it"],
+  "IT-25":["ARPA Lombardia",[8.59,44.68,10.83,46.63],"https://www.arpalombardia.it"],
+  "IT-32-BZ":["Lawinenwarndienst Südtirol",[10.38,46.22,12.48,47.09],"https://lawinen.report"],
+  "IT-32-TN":["Meteotrentino",[10.45,45.67,11.96,46.53],"https://lawinen.report"],
+  "IT-34":["ARPA Veneto",[10.71,45.53,12.73,46.68],"https://www.arpa.veneto.it"],
+  "IT-36":["Regione Friuli Venezia Giulia",[12.32,45.98,13.72,46.65],"https://www.meteo.fvg.it"],
+  "SI":["ARSO Slowenien",[13.38,45.42,16.08,46.66],"https://meteo.arso.gov.si"]};
+const LWD={by:null,regions:null,err:null,services:[],date:null};
 const ringIn=(r,x,y)=>{let ins=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)ins=!ins}return ins};
+const alpDate=(off=0)=>new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Vienna"}).format(new Date(Date.now()+off*864e5));
+async function fetchJson(u){try{const r=await fetch(u,{cache:"no-cache"}); return r.ok?await r.json():null}catch(e){return null}}
+async function serviceBulletin(id,date){
+  return await fetchJson(`${EAWS_URL}${date}/${date}-${id}.de.json`)||await fetchJson(`${EAWS_URL}${date}/${date}-${id}.json`);
+}
 let lwdP=null;
 function loadBulletin(){
   if(lwdP)return lwdP;
   lwdP=(async()=>{
-    const today=new Date().toISOString().slice(0,10);
-    const [b,...fcs]=await Promise.all([fetch(BULL_URL).then(r=>r.json()),...["AT-07","IT-32-BZ","IT-32-TN"].map(c=>fetch(`https://regions.avalanches.org/micro-regions/${c}_micro-regions.geojson.json`).then(r=>r.json()).catch(()=>null))]);
-    const regions=[];
-    fcs.forEach(fc=>fc&&fc.features.forEach(f=>{const p=f.properties;if(p.end_date&&p.end_date<=today)return;if(p.start_date&&p.start_date>today)return;
-      const polys=f.geometry.type==="Polygon"?[f.geometry.coordinates]:f.geometry.coordinates;let a=1e9,c=1e9,d=-1e9,e=-1e9;
-      polys.forEach(pl=>pl[0].forEach(([x,y])=>{a=Math.min(a,x);c=Math.min(c,y);d=Math.max(d,x);e=Math.max(e,y)}));regions.push({id:p.id,polys,bb:[a,c,d,e]})}));
-    const by=new Map(); b.bulletins.forEach(bu=>bu.regions.forEach(r=>by.set(r.regionID,{bu,name:r.name})));
-    LWD.by=by; LWD.regions=regions; LWD.pub=b.bulletins[0]&&b.bulletins[0].publicationTime; LWD.valid=b.bulletins[0]&&b.bulletins[0].validTime;
+    // services whose area overlaps the loaded map (plus a margin)
+    const w=xToLon(0)-0.1, e=xToLon(W-1)+0.1, n=yToLat(0)+0.1, s=yToLat(H-1)-0.1;
+    const ids=Object.keys(AVAL_SERVICES).filter(k=>{const b=AVAL_SERVICES[k][1];return b[0]<e&&b[2]>w&&b[1]<n&&b[3]>s});
+    const today=alpDate(0), hour=+new Intl.DateTimeFormat("de-AT",{timeZone:"Europe/Vienna",hour:"numeric",hour12:false}).format(new Date());
+    // a bulletin is valid from 17:00 the day before: in the evening the next day's one is the current one
+    const qd=new URLSearchParams(location.search).get("avdate");   // ?avdate=YYYY-MM-DD shows an archived day
+    const dates=qd?[qd]:hour>=17?[alpDate(1),today]:[today];
+    const regions=[], by=new Map(); let found=null;
+    await Promise.all(ids.map(async id=>{
+      const fc=await fetchJson(`https://regions.avalanches.org/micro-regions/${id}_micro-regions.geojson.json`);
+      if(fc)fc.features.forEach(f=>{const p=f.properties;if(p.end_date&&p.end_date<=today)return;if(p.start_date&&p.start_date>today)return;
+        const polys=f.geometry.type==="Polygon"?[f.geometry.coordinates]:f.geometry.coordinates;let a=1e9,c=1e9,d=-1e9,g=-1e9;
+        polys.forEach(pl=>pl[0].forEach(([x,y])=>{a=Math.min(a,x);c=Math.min(c,y);d=Math.max(d,x);g=Math.max(g,y)}));regions.push({id:p.id,polys,bb:[a,c,d,g]})});
+      let doc=null, date=null; for(const dt of dates){doc=await serviceBulletin(id,dt); if(doc){date=dt;break}}
+      if(!doc)return; found=found||date;
+      (doc.bulletins||[]).forEach(bu=>(bu.regions||[]).forEach(r=>{const old=by.get(r.regionID);
+        if(!old||(bu.publicationTime||"")>(old.bu.publicationTime||""))by.set(r.regionID,{bu,name:r.name,service:id})}));
+    }));
+    // outside the season the services publish nothing: show the last Euregio bulletin, marked as old
+    if(!by.size&&ids.some(k=>/^(AT-07|IT-32-BZ|IT-32-TN)$/.test(k))){
+      const b=await fetchJson(BULL_URL); if(b)b.bulletins.forEach(bu=>bu.regions.forEach(r=>by.set(r.regionID,{bu,name:r.name,service:"AT-07"})))}
+    LWD.by=by; LWD.regions=regions; LWD.date=found; LWD.services=[...new Set([...by.values()].map(v=>v.service))];
     return LWD;
   })();
   lwdP.catch(e=>{LWD.err=e.message;lwdP=null});
@@ -2097,6 +2145,15 @@ function regionAt(lon,lat){
   for(const g of LWD.regions){const b=g.bb;if(lon<b[0]||lon>b[2]||lat<b[1]||lat>b[3])continue;
     for(const pl of g.polys){if(ringIn(pl[0],lon,lat)&&!pl.slice(1).some(h=>ringIn(h,lon,lat)))return g.id}}
   return null;
+}
+// the bulletin may name the micro-region itself, a parent (AT-07-04 for AT-07-04-01) or a child
+const bullCache=new Map();
+function bulletinFor(id){
+  if(!id||!LWD.by)return null; if(bullCache.has(id))return bullCache.get(id);
+  let e=LWD.by.get(id);
+  for(let k=id;!e&&k.lastIndexOf("-")>2;){k=k.slice(0,k.lastIndexOf("-")); e=LWD.by.get(k)}
+  if(!e)for(const [k,v] of LWD.by)if(k.startsWith(id+"-")){e=v;break}
+  bullCache.set(id,e||null); return e||null;
 }
 const boundM=v=>v===undefined?null:v==="treeline"?1900:+v;
 function dangerAt(bu,elev,period){
@@ -2114,12 +2171,12 @@ async function buildDanger(){
   await loadBulletin(); if(dangerBuilt)return; dangerBuilt=true;
   const B=16, bw=Math.ceil(W/B), bh=Math.ceil(H/B), reg=new Array(bw*bh);
   for(let j=0;j<bh;j++)for(let i=0;i<bw;i++){const gx=i*B+B/2, gy=j*B+B/2;reg[j*bw+i]=regionAt(xToLon(gx),yToLat(gy))}
-  for(let y=0;y<DH;y++)for(let x=0;x<DW;x++){const gx=x*4+2, gy=y*4+2, r=reg[Math.floor(gy/B)*bw+Math.floor(gx/B)], e=LWD.by&&r&&LWD.by.get(r);
+  for(let y=0;y<DH;y++)for(let x=0;x<DW;x++){const gx=x*4+2, gy=y*4+2, r=reg[Math.floor(gy/B)*bw+Math.floor(gx/B)], e=bulletinFor(r);
     dangerData[y*DW+x]=e?dangerAt(e.bu,elevAt(gx,gy))*50:0}
   dangerTex.needsUpdate=true; needsRender=true;
 }
 function centerBulletin(){
-  const [gx,gy]=targetGrid(), r=regionAt(xToLon(gx),yToLat(gy)), e=r&&LWD.by&&LWD.by.get(r);
+  const [gx,gy]=targetGrid(), r=regionAt(xToLon(gx),yToLat(gy)), e=bulletinFor(r);
   return e?{...e,id:r,elev:elevAt(gx,gy)}:null;
 }
 const strip=h=>String(h||"").replace(/<br\s*\/?>/gi,"\n").replace(/<[^>]+>/g,"").trim();
@@ -2128,14 +2185,15 @@ function renderBulletin(){
   if(LWD.err){box.innerHTML=`<p class="warn">Lagebericht gerade nicht erreichbar.</p>`;return}
   if(!LWD.by){box.innerHTML='<p class="hint">Lagebericht wird geladen …</p>';return}
   const c=centerBulletin();
-  if(!c){box.innerHTML='<p class="hint">Für diesen Ort gibt es hier keinen Lagebericht. Bisher eingebunden: Tirol, Südtirol und Trentino (Euregio).</p>';return}
+  if(!c){box.innerHTML=LWD.by.size?'<p class="hint">Für diesen Ort gibt es gerade keinen Lagebericht.</p>':'<p class="hint">Für diese Gegend gibt es gerade keinen Lagebericht. Die Warndienste veröffentlichen ab dem Spätherbst bis ins Frühjahr.</p>';return}
   const bu=c.bu, start=new Date(bu.validTime.startTime), end=new Date(bu.validTime.endTime), old=Date.now()>end.getTime();
   const f=d=>d.toLocaleString("de-AT",{weekday:"short",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
   const bands=[];
   for(const d of bu.dangerRatings||[]){const lo=d.elevation&&d.elevation.lowerBound, hi=d.elevation&&d.elevation.upperBound, lv=DLV[d.mainValue]||0;
     const where=lo?`über ${lo==="treeline"?"Waldgrenze":lo+" m"}`:hi?`unter ${hi==="treeline"?"Waldgrenze":hi+" m"}`:"alle Höhen";
     const when=d.validTimePeriod==="earlier"?"vormittags":d.validTimePeriod==="later"?"nachmittags":"";
-    bands.push(`<span class="pill" style="background:${DLC[lv]};color:#1b2420">${DLN[lv]}</span> <span class="sub">${where}${when?", "+when:""}</span>`)}
+    const sub=d.customData&&d.customData.CH&&d.customData.CH.subdivision, sg=sub==="plus"?"+":sub==="minus"?"−":"";
+    bands.push(`<span class="pill" style="background:${DLC[lv]};color:#1b2420">${sg?DLN[lv].replace(" ",sg+" "):DLN[lv]}</span> <span class="sub">${where}${when?", "+when:""}</span>`)}
   const probs=(bu.avalancheProblems||[]).map(p=>{const lo=p.elevation&&p.elevation.lowerBound, hi=p.elevation&&p.elevation.upperBound;
     const el=lo?`über ${lo==="treeline"?"Waldgrenze":lo+" m"}`:hi?`unter ${hi==="treeline"?"Waldgrenze":hi+" m"}`:"alle Höhen";
     const asp=(p.aspects||[]).map(a=>ASPN[ASP[a]]).join(" ");
@@ -2148,8 +2206,8 @@ function renderBulletin(){
     ${hl?`<p style="margin:10px 0 4px;font-weight:600">${escapeHtml(hl)}</p>`:""}
     ${cm?`<p class="hint" style="white-space:pre-line">${escapeHtml(cm)}</p>`:""}
     ${sp?`<p class="hint" style="white-space:pre-line;margin-top:6px">${escapeHtml(sp)}</p>`:""}
-    <div class="row" style="margin-top:10px"><button class="btn primary" id="avalToPlan">Für Tourenplanung übernehmen</button><a class="btn" href="https://lawinen.report" target="_blank" rel="noopener">Ganzer Bericht</a></div>
-    <p class="hint" style="margin-top:8px">Quelle: Lawinenwarndienste Tirol, Südtirol und Trentino (avalanche.report).</p>`;
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="avalToPlan">Für Tourenplanung übernehmen</button><a class="btn" href="${(AVAL_SERVICES[c.service]||[,,"https://www.avalanches.org"])[2]}" target="_blank" rel="noopener">Ganzer Bericht</a></div>
+    <p class="hint" style="margin-top:8px">Quelle: ${escapeHtml((AVAL_SERVICES[c.service]||["Lawinenwarndienst"])[0])}, über EAWS und avalanche.report.</p>`;
   $("avalToPlan").onclick=()=>{
     let dl=0; (bu.dangerRatings||[]).forEach(d=>dl=Math.max(dl,DLV[d.mainValue]||0));
     const core=[0,0,0,0,0,0,0,0]; let lo=1e9;
@@ -2166,29 +2224,66 @@ $("qAval").onclick=async()=>{
   applyUniforms();
 };
 
-// weather stations: snow depth, new snow, temperature
+// weather stations: snow depth, new snow, temperature. Euregio (avalanche.report), Switzerland (SLF, MeteoSwiss),
+// rest of Austria (GeoSphere Austria). Every source is turned into the same record.
+const SLF_URL="https://public-meas-data-v2.slf.ch/public/station-data/", GEO_URL="https://dataset.api.hub.geosphere.at/v1/station/";
 let stations=[]; const stnLayer=$("labels");
+const num=v=>v===undefined||v===null||v===""||!isFinite(+v)?null:+v;
+async function stnEuregio(){
+  const fc=await fetchJson(STN_URL); if(!fc)return [];
+  return fc.features.map(f=>{const [lon,lat,alt]=f.geometry.coordinates, p=f.properties;
+    return {lon,lat,alt,name:p.name,hs:num(p.HS),hn24:num(p.HSD24),hn48:num(p.HSD48),hn72:num(p.HSD72),lt:num(p.LT),ltmin:num(p.LT_MIN),ltmax:num(p.LT_MAX),
+      wg:num(p.WG),wgb:num(p.WG_BOE),wr:num(p.WR),date:p.date,operator:p.operator||"Lawinenwarndienst",link:"https://lawinen.report/weather/stations"}});
+}
+async function stnSlf(box){
+  const [hs,hn]=await Promise.all([fetchJson(SLF_URL+"timepoint/SNOW_HEIGHT/current/geojson"),fetchJson(SLF_URL+"timepoint/HEIGHT_NEW_SNOW_1D/current/geojson")]);
+  if(!hs)return [];
+  const nw=new Map(((hn&&hn.features)||[]).map(f=>[f.properties.network+"/"+f.properties.code,f.properties]));
+  const NET={IMIS:"SLF, automatische Station (IMIS)",SMN:"MeteoSchweiz",BEOB:"SLF, Beobachter"};
+  return hs.features.filter(f=>box(f.geometry.coordinates[0],f.geometry.coordinates[1])).map(f=>{const [lon,lat,alt]=f.geometry.coordinates, p=f.properties, q=nw.get(p.network+"/"+p.code);
+    return {lon,lat,alt:num(p.elevation)??alt,name:p.label,hs:num(p.value),hn24:q?num(q.value):null,date:p.timestamp,operator:NET[p.network]||p.network,
+      link:`https://whiterisk.ch/de/conditions/measurements/station/${encodeURIComponent(p.network)}/${encodeURIComponent(p.code)}`}})
+    .filter(s=>s.hs!==null||s.hn24!==null);
+}
+async function stnGeosphere(box){
+  const m=await fetchJson(GEO_URL+"current/tawes-v1-10min/metadata"); if(!m)return [];
+  const st=m.stations.filter(s=>s.is_active&&s.altitude>450&&box(s.lon,s.lat)&&s.state!=="Tirol"); if(!st.length)return [];
+  const cur=await fetchJson(GEO_URL+"current/tawes-v1-10min?parameters=SCHNEE,TL,FF,FFX,DD&station_ids="+st.map(s=>s.id).join(","));
+  const val=new Map(((cur&&cur.features)||[]).map(f=>[f.properties.station,f.properties.parameters])), t=cur&&cur.timestamps&&cur.timestamps[0];
+  const v=(o,k,f=1)=>{const x=o&&o[k]&&o[k].data&&o[k].data[0];return x===null||x===undefined?null:x*f};
+  return st.map(s=>{const o=val.get(s.id);
+    return {lon:s.lon,lat:s.lat,alt:s.altitude,name:s.name.toLowerCase().replace(/(^|[\s\-\/])\S/g,c=>c.toUpperCase()),hs:v(o,"SCHNEE"),lt:v(o,"TL"),wg:v(o,"FF",3.6),wgb:v(o,"FFX",3.6),wr:v(o,"DD"),
+      date:t,operator:"GeoSphere Austria",link:null}}).filter(s=>s.hs!==null||s.lt!==null);
+}
 async function loadStations(){
   if(stations.length)return;
-  let fc; try{fc=await (await fetch(STN_URL)).json()}catch(e){statusEl.textContent="Messstationen gerade nicht erreichbar";return}
-  for(const f of fc.features){const [lon,lat,alt]=f.geometry.coordinates, gx=lonToX(lon), gy=latToY(lat);
-    if(gx<0||gy<0||gx>=W||gy>=H)continue; const p=f.properties;
+  const w=xToLon(0), e=xToLon(W-1), n=yToLat(0), so=yToLat(H-1), box=(lon,lat)=>lon>=w&&lon<=e&&lat>=so&&lat<=n;
+  const parts=await Promise.all([stnEuregio().catch(()=>[]),stnSlf(box).catch(()=>[]),stnGeosphere(box).catch(()=>[])]);
+  const all=[]; parts.forEach(list=>list.forEach(s=>{
+    if(!box(s.lon,s.lat))return;
+    if(all.some(o=>Math.abs(o.lon-s.lon)<0.004&&Math.abs(o.lat-s.lat)<0.003&&Math.abs((o.alt||0)-(s.alt||0))<60))return;   // same station in two sources
+    all.push(s)}));
+  if(!all.length&&!parts.some(p=>p.length)){statusEl.textContent="Messstationen gerade nicht erreichbar";return}
+  for(const p of all){const gx=lonToX(p.lon), gy=latToY(p.lat);
     const el=document.createElement("button"); el.className="stn";
-    const hs=p.HS!==undefined&&p.HS!==null?Math.max(0,Math.round(p.HS)):null, d24=p.HSD24!==undefined?Math.round(p.HSD24):null;
-    el.innerHTML=hs!==null?`${hs} cm${d24>=1?` <i>+${d24}</i>`:""}`:p.LT!==undefined?`${fmt(p.LT,1)}°`:"•";
-    el.onclick=ev=>{ev.stopPropagation();showStation(p,alt)};
-    stnLayer.appendChild(el); stations.push({gx,gy,el,p,alt});
+    const hs=p.hs!==null?Math.max(0,Math.round(p.hs)):null, d24=p.hn24!==null?Math.round(p.hn24):null;
+    el.innerHTML=hs!==null?`${hs} cm${d24>=1?` <i>+${d24}</i>`:""}`:p.lt!==null?`${fmt(p.lt,1)}°`:"•";
+    el.onclick=ev=>{ev.stopPropagation();showStation(p)};
+    stnLayer.appendChild(el); stations.push({gx,gy,el,p,alt:p.alt});
   }
   needsRender=true;
 }
-function showStation(p,alt){
-  const v=(k,u,d=0)=>p[k]!==undefined&&p[k]!==null?`${fmt(p[k],d)}${u}`:"–";
+function showStation(p){
+  const v=(x,u,d=0)=>x!==undefined&&x!==null?`${fmt(x,d)}${u}`:"–";
   const t=p.date?new Date(p.date).toLocaleString("de-AT",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"}):"";
-  $("pointInfo").innerHTML=`<div class="point"><span class="big">${p.HS!==undefined?fmt(Math.max(0,Math.round(p.HS)))+" cm":"–"}</span><span class="sub">Schneehöhe</span></div>
-    <div class="point"><span class="sub"><b style="color:var(--ink)">${escapeHtml(p.name||"Station")}</b> · ${fmt(Math.round(alt))} m · ${t}</span></div>
-    <div class="point"><span class="sub">Neuschnee 24 h ${v("HSD24"," cm")} · 48 h ${v("HSD48"," cm")} · 72 h ${v("HSD72"," cm")}</span></div>
-    <div class="point"><span class="sub">Luft ${v("LT","°",1)} (${v("LT_MIN","°",1)} bis ${v("LT_MAX","°",1)}) · Wind ${v("WG"," km/h")}${p.WG_BOE!==undefined?", Böen "+v("WG_BOE"," km/h"):""}${p.WR!==undefined?" aus "+ASPN[Math.round(p.WR/45)%8]:""}</span></div>
-    <div class="point"><span class="sub">${escapeHtml(p.operator||"")}</span></div>`;
+  const nn=[p.hn24!==null&&p.hn24!==undefined?"24 h "+v(p.hn24," cm"):"",p.hn48!=null?"48 h "+v(p.hn48," cm"):"",p.hn72!=null?"72 h "+v(p.hn72," cm"):""].filter(Boolean).join(" · ");
+  const air=p.lt!=null?`Luft ${v(p.lt,"°",1)}${p.ltmin!=null?` (${v(p.ltmin,"°",1)} bis ${v(p.ltmax,"°",1)})`:""}`:"";
+  const wind=p.wg!=null?`Wind ${v(p.wg," km/h")}${p.wgb!=null?", Böen "+v(p.wgb," km/h"):""}${p.wr!=null?" aus "+ASPN[Math.round(p.wr/45)%8]:""}`:"";
+  $("pointInfo").innerHTML=`<div class="point"><span class="big">${p.hs!=null?fmt(Math.max(0,Math.round(p.hs)))+" cm":"–"}</span><span class="sub">Schneehöhe</span></div>
+    <div class="point"><span class="sub"><b style="color:var(--ink)">${escapeHtml(p.name||"Station")}</b> · ${p.alt?fmt(Math.round(p.alt))+" m · ":""}${t}</span></div>
+    ${nn?`<div class="point"><span class="sub">Neuschnee ${nn}</span></div>`:""}
+    ${air||wind?`<div class="point"><span class="sub">${[air,wind].filter(Boolean).join(" · ")}</span></div>`:""}
+    <div class="point"><span class="sub">${escapeHtml(p.operator||"")}${p.link?` · <a href="${p.link}" target="_blank" rel="noopener">Station ansehen</a>`:""}</span></div>`;
   openPanel(null); $("pointCard").hidden=false;
 }
 function placeStations(){
@@ -2199,6 +2294,73 @@ function placeStations(){
     project(s.gx,s.gy,s.el,0.05);
   }
 }
+
+// ---------- Weather from Open-Meteo (best model per place, e.g. ICON-D2, MeteoSwiss, AROME) ----------
+const OM_URL="https://api.open-meteo.com/v1/forecast";
+const WMO=c=>c===0?"klar":c<=2?"leicht bewölkt":c===3?"bedeckt":c<=48?"Nebel":c<=57?"Niesel":c<=67?"Regen":c<=77?"Schneefall":c<=82?"Regenschauer":c<=86?"Schneeschauer":"Gewitter";
+async function weatherCard(gx,gy,box){
+  box.innerHTML='<span class="hint">Wetter wird geladen …</span>';
+  const lat=yToLat(gy), lon=xToLon(gx), ele=Math.round(heightGrid(gx,gy));
+  const j=await fetchJson(`${OM_URL}?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&elevation=${ele}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunshine_duration&hourly=freezing_level_height,precipitation&timezone=Europe%2FVienna&forecast_days=3`);
+  if(!j||!j.daily){box.innerHTML='<span class="warn">Wetter gerade nicht erreichbar.</span>';return}
+  const d=j.daily, fl=j.hourly&&j.hourly.freezing_level_height||[], pr=j.hourly&&j.hourly.precipitation||[];
+  const rows=d.time.map((t,i)=>{const day=new Date(t+"T12:00").toLocaleDateString("de-AT",{weekday:"short",day:"numeric",month:"numeric"});
+    const f=fl.slice(i*24+9,i*24+17).filter(v=>v!=null), fz=f.length?Math.round(f.reduce((a,b)=>a+b,0)/f.length/100)*100:null;
+    const ns=fcTable({pr:pr.slice(i*24,i*24+24),fl:fl.slice(i*24,i*24+24)},24)[Math.min(FC_LEVELS-1,Math.round(ele/FC_STEP))];
+    return `<div class="offitem"><div><b>${day} · ${WMO(d.weather_code[i])}</b>${fmt(Math.round(d.temperature_2m_min[i]))} bis ${fmt(Math.round(d.temperature_2m_max[i]))}° auf ${fmt(ele)} m${fz!==null?` · Nullgradgrenze ${fmt(fz)} m`:""}<br>
+      ${ns>=1?`Neuschnee etwa ${fmt(Math.round(ns))} cm · `:""}Niederschlag ${fmt(d.precipitation_sum[i],1)} mm · Wind ${fmt(Math.round(d.wind_speed_10m_max[i]))} km/h aus ${ASPN[Math.round(d.wind_direction_10m_dominant[i]/45)%8]}, Böen ${fmt(Math.round(d.wind_gusts_10m_max[i]))} · Sonne ${fmt(Math.round(d.sunshine_duration[i]/3600))} h</div></div>`}).join("");
+  box.style.display="block";
+  box.innerHTML=rows+`<p class="hint" style="margin-top:4px">Wetterdaten: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0), Temperatur auf die Höhe des Punkts umgerechnet.</p>`;
+}
+// new snow forecast layer: hourly precipitation and freezing level on a coarse grid of points,
+// per point a table "new snow by elevation" (snow where the ground lies above freezing level minus 300 m,
+// 1 mm water ~ 1 cm snow), then per 20 m cell interpolated between the four nearest points at the cell's height
+const snowFcData=new Uint8Array(DW*DH), snowFcTex=new THREE.DataTexture(snowFcData,DW,DH,THREE.LuminanceFormat);
+snowFcTex.magFilter=snowFcTex.minFilter=THREE.LinearFilter; snowFcTex.generateMipmaps=false; shared.snowFcMap.value=snowFcTex;
+var snowFcReady=false, snowFcGrid=null, snowFcBusy=null;
+const FC_NX=6, FC_NY=5, FC_STEP=100, FC_LEVELS=49;
+async function loadSnowFc(){
+  if(snowFcGrid)return snowFcGrid;
+  const lats=[], lons=[];
+  for(let j=0;j<FC_NY;j++)for(let i=0;i<FC_NX;i++){lons.push(xToLon(i/(FC_NX-1)*(W-1)).toFixed(4));lats.push(yToLat(j/(FC_NY-1)*(H-1)).toFixed(4))}
+  const r=await fetchJson(`${OM_URL}?latitude=${lats.join(",")}&longitude=${lons.join(",")}&hourly=precipitation,freezing_level_height&forecast_hours=72&timezone=Europe%2FVienna`);
+  if(!r)return null;
+  const arr=Array.isArray(r)?r:[r];
+  snowFcGrid=arr.map(o=>{const pr=o.hourly.precipitation, fl=o.hourly.freezing_level_height; return {pr,fl}});
+  return snowFcGrid;
+}
+function fcTable(pt,hours){
+  const t=new Float32Array(FC_LEVELS);
+  for(let h=0;h<Math.min(hours,pt.pr.length);h++){const p=pt.pr[h]||0; if(p<=0)continue; const sl=(pt.fl[h]??3000)-300;
+    for(let l=0;l<FC_LEVELS;l++){const e=l*FC_STEP; if(e>=sl+150)t[l]+=p; else if(e>sl-150)t[l]+=p*(e-(sl-150))/300}}
+  return t;
+}
+async function buildSnowFc(){
+  if(snowFcBusy)return snowFcBusy;
+  snowFcBusy=(async()=>{
+    statusEl.textContent="Neuschnee-Prognose wird geladen …";
+    const g=await loadSnowFc(); if(!g){statusEl.textContent="Wetterprognose gerade nicht erreichbar";return}
+    const tabs=g.map(p=>fcTable(p,state.fcHours));
+    let mx=0;
+    for(let y=0;y<DH;y++)for(let x=0;x<DW;x++){
+      const fx=x/(DW-1)*(FC_NX-1), fy=y/(DH-1)*(FC_NY-1), i0=Math.min(FC_NX-2,Math.floor(fx)), j0=Math.min(FC_NY-2,Math.floor(fy)), tx=fx-i0, ty=fy-j0;
+      const e=elevAt(x*4+2,y*4+2), l=Math.max(0,Math.min(FC_LEVELS-1.001,e/FC_STEP)), l0=Math.floor(l), lf=l-l0;
+      const at=k=>tabs[k][l0]*(1-lf)+tabs[k][l0+1]*lf;
+      const v=(at(j0*FC_NX+i0)*(1-tx)+at(j0*FC_NX+i0+1)*tx)*(1-ty)+(at((j0+1)*FC_NX+i0)*(1-tx)+at((j0+1)*FC_NX+i0+1)*tx)*ty;
+      snowFcData[y*DW+x]=Math.min(255,Math.round(v)); mx=Math.max(mx,v)}
+    snowFcTex.needsUpdate=true; snowFcReady=true; applyUniforms();
+    $("fcInfo").textContent=mx<2?`Kein nennenswerter Neuschnee in den nächsten ${state.fcHours} Stunden.`:`Bis zu etwa ${fmt(Math.round(mx))} cm in den nächsten ${state.fcHours} Stunden.`;
+    statusEl.textContent="Luftbild: "+orthoSrcName();
+  })();
+  try{await snowFcBusy}finally{snowFcBusy=null}
+}
+function snowFcAt(gx,gy){
+  if(!state.snowfc||!snowFcReady)return null;
+  const x=Math.min(DW-1,Math.max(0,Math.round((gx-2)/4))), y=Math.min(DH-1,Math.max(0,Math.round((gy-2)/4)));
+  return snowFcData[y*DW+x];
+}
+$("fcHours").onchange=async e=>{state.fcHours=+e.target.value; saveState(); if(state.snowfc)await buildSnowFc()};
+$("fcHours").value=String(state.fcHours);
 
 // ---------- Overview: 2D topographic map of the whole Alps (OpenTopoMap) to look around and jump anywhere ----------
 let ovMap=null, ovLoad=null;
@@ -2420,7 +2582,7 @@ function navigateKeepView(lon,lat,tlon,tlat){
 hereBtn.onclick=()=>{clearTimeout(autoTimer);autoLoad()};
 // put buttons, selects and sliders in line with restored settings
 function syncUI(){
-  const chips={lyDanger:"danger",lyStations:"stations",lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths"};
+  const chips={lyDanger:"danger",lyStations:"stations",lyForest:"forest",lyAo:"ao",lySlope:"slope",lyAspect:"aspect",lyTrees:"trees",lyContour:"contour",lyLabels:"labels",lyWinter:"winter",lyPistes:"pistes",lyPaths:"paths",lySnowFc:"snowfc"};
   for(const id in chips)$(id).setAttribute("aria-pressed",state[chips[id]]);
   $("bmOrtho").setAttribute("aria-pressed",state.base==="ortho"); $("bmRelief").setAttribute("aria-pressed",state.base==="relief");
   $("snowLvl").value=state.snow; $("wind").value=state.wind; $("newSnow").value=state.newSnow; $("lineN").value=state.lineN; $("lineS").value=state.lineS; setLineOut();
@@ -2457,6 +2619,7 @@ setTimeout(loadOsm,1500);
 computeAO();
 if(state.danger)buildDanger().catch(()=>{});
 if(state.stations)loadStations();
+if(state.snowfc)buildSnowFc();
 (async()=>{
   if(state.winter){await computeWinter(true);applyUniforms()}
   const sn=$("snap"); if(!sn)return;

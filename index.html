@@ -332,6 +332,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
           <button class="chip" id="lyPistes" aria-pressed="true">Pisten &amp; Lifte</button>
           <button class="chip" id="lyPaths" aria-pressed="false">Wege</button>
           <button class="chip" id="lySnowgrid" aria-pressed="false">SNOWGRID</button>
+          <button class="chip" id="lySnowFc" aria-pressed="false">Neuschnee-Prognose</button>
         </div>
         <div class="legend" id="legend" hidden>
         <span><i style="background:var(--s30)"></i>30–35°</span>
@@ -348,6 +349,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
       </div>
       <div class="legend" id="legendDanger" hidden>
         <span><i style="background:#ccff66"></i>1 gering</span><span><i style="background:#ffff00"></i>2 mäßig</span><span><i style="background:#ff9900"></i>3 erheblich</span><span><i style="background:#ff0000"></i>4 groß</span><span><i style="background:#a00000"></i>5 sehr groß</span>
+      </div>
+      <div class="legend" id="legendSnowFc" hidden>
+        <span><i style="background:#b8dbff"></i>2–10 cm</span><span><i style="background:#6badff"></i>10–20</span><span><i style="background:#2e6beb"></i>20–40</span><span><i style="background:#6b33cc"></i>40–70</span><span><i style="background:#cc26b3"></i>über 70</span>
+        <span style="flex-basis:100%"><select id="fcHours" aria-label="Zeitraum"><option value="24">nächste 24 h</option><option value="48">nächste 48 h</option><option value="72">nächste 72 h</option></select> <span id="fcInfo"></span></span>
+        <span style="flex-basis:100%">Grobe Abschätzung aus Niederschlag und Nullgradgrenze (Open-Meteo, CC BY 4.0), 1 mm Wasser etwa 1 cm Schnee. Wind und Setzung sind nicht berücksichtigt.</span>
       </div>
       <div class="legend" id="legendForest" hidden>
         <span><i style="background:#4dbf4d"></i>licht, unter 35 %</span><span><i style="background:#f2b326"></i>mittel, 35–65 %</span><span><i style="background:#cc2e26"></i>dicht, über 65 %</span>
@@ -481,12 +487,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=59"></script>
-<script src="js/config.js?v=59"></script>
-<script src="js/geo.js?v=59"></script>
-<script src="js/borders.js?v=59"></script>
-<script src="js/sources.js?v=59"></script>
-<script src="js/region.js?v=59"></script>
-<script src="js/app.js?v=59"></script>
+<script src="data/nordkette-meta.js?v=60"></script>
+<script src="js/config.js?v=60"></script>
+<script src="js/geo.js?v=60"></script>
+<script src="js/borders.js?v=60"></script>
+<script src="js/sources.js?v=60"></script>
+<script src="js/region.js?v=60"></script>
+<script src="js/app.js?v=60"></script>
 </body>
 </html>
