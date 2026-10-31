@@ -1046,17 +1046,24 @@ const PISTE_COL={novice:"#2a7de1",easy:"#2a7de1",intermediate:"#d7301f",advanced
 const PISTE_NAME={novice:"blaue Piste",easy:"blaue Piste",intermediate:"rote Piste",advanced:"schwarze Piste",expert:"schwarze Piste",freeride:"Skiroute",extreme:"Skiroute"};
 const LIFT_NAME={cable_car:"Seilbahn",gondola:"Gondelbahn",chair_lift:"Sessellift",drag_lift:"Schlepplift","t-bar":"Schlepplift","j-bar":"Schlepplift",platter:"Tellerlift",rope_tow:"Seillift",magic_carpet:"Förderband",mixed_lift:"Kombibahn",funicular:"Standseilbahn"};
 var osmWays=[];
-async function overpass(q,key,oldKeys,rounds){
+// ask the Overpass servers one after another with a short head start each, the first good answer wins
+async function overpassFetch(q,timeout){
+  const ctls=OVERPASS.map(()=>new AbortController()), t=setTimeout(()=>ctls.forEach(c=>c.abort()),timeout);
+  try{
+    return await Promise.any(OVERPASS.map(async(host,i)=>{
+      if(i)await new Promise((r,rej)=>{const w=setTimeout(r,i*7000);ctls[i].signal.addEventListener("abort",()=>{clearTimeout(w);rej(new Error("abort"))})});
+      const r=await fetch(host+"?data="+encodeURIComponent(q),{signal:ctls[i].signal}); const tx=await r.text();
+      if(!(r.ok&&tx.trim().startsWith("{")))throw new Error("busy"); return tx}));
+  }catch(e){return null}
+  finally{clearTimeout(t);ctls.forEach(c=>c.abort())}
+}
+async function overpass(q,key,oldKeys,rounds,timeout){
   let cache=null;
   try{cache=await caches.open("mmm-osm"); const hit=await cache.match(key); if(hit)return await hit.json()}catch(e){}
   for(let round=0;round<(rounds||3);round++){
-    for(const host of OVERPASS){
-      try{const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),45000);
-        const r=await fetch(host+"?data="+encodeURIComponent(q),{signal:ctl.signal}); const tx=await r.text(); clearTimeout(to);
-        if(r.ok&&tx.trim().startsWith("{")){if(cache)try{await cache.put(key,new Response(tx,{headers:{"Content-Type":"application/json"}}))}catch(e){} return JSON.parse(tx)}
-      }catch(e){}
-    }
-    await new Promise(r=>setTimeout(r,2000*(round+1)));
+    const tx=await overpassFetch(q,timeout||45000);
+    if(tx){if(cache)try{await cache.put(key,new Response(tx,{headers:{"Content-Type":"application/json"}}))}catch(e){} return JSON.parse(tx)}
+    if(round<(rounds||3)-1)await new Promise(r=>setTimeout(r,3000*(round+1)));
   }
   // servers busy: fall back to an older saved answer if there is one
   if(cache)for(const k of oldKeys||[]){try{const hit=await cache.match(k); if(hit)return await hit.json()}catch(e){}}
@@ -1883,7 +1890,8 @@ async function offDownload(e){
     const [lon,lat]=p.regions[i], cell=5/Math.cos(lat*Math.PI/180), [cx,cy]=MMMGeo.lonLatToMerc(lon,lat);
     const {q1,q2,base}=osmQueries({x0:cx-1000*cell,y1:cy+750*cell,W:2000,H:1500,cell});
     st.textContent=`Wege und Namen ${i+1} von ${p.regions.length} …`;
-    const o1=await overpass(q1,base+"/main4",[],1), o2=await overpass(q2,base+"/tracks6",[],1); if(!o1||!o2)failO++;
+    if(failO>=2&&failO===i){failO=p.regions.length;break}   // server clearly down: skip the rest, retry later
+    const o1=await overpass(q1,base+"/main4",[],1,30000), o2=await overpass(q2,base+"/tracks6",[],1,30000); if(!o1||!o2)failO++;
   }
   const areas=loadAreas(), name=(META.name&&META.name!=="Mein Standort"?META.name:$("subtitle").textContent.split(" · ")[0])||"Bereich";
   areas.push({id:Date.now(),name,b,regions:p.regions,detail:+$("offDetail").value,km:p.km,mb:Math.round(p.mb),date:new Date().toISOString().slice(0,10)});
