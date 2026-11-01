@@ -125,16 +125,18 @@ function astarSki(p,I){
   const wy=ways?new Uint8Array(ways):null;
   if(wy)for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(ways[k]!==9)continue;
     for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!wy[m])wy[m]=9}}
-  // usable in winter: pistes, ski tour lines, forest roads and easy paths (T1 to T3). Summer paths are what
-  // ski tourers follow through forest and mountain pine (reference track Nordkette: 60 to 90 % on paths
-  // between 1200 and 1700 m). go: 2 on the way, 1 next to it (lines are mapped as centre lines)
-  const use=v=>v>=7||(v>=1&&v<=3), go=new Uint8Array(n);
-  if(wy){for(let k=0;k<n;k++)if(use(wy[k]))go[k]=2;
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(go[k]!==2)continue;
-      for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!go[m])go[m]=1}}}
+  // what a ski track follows: pistes and ski tour lines first (also zigzagging up a steep piste), then forest roads.
+  // Summer paths only as an exception: through forest, where they are the only clearing.
+  // go: 2 on the line, 1 beside it (pistes are 30 to 60 m wide but mapped as a centre line)
+  const go=new Uint8Array(n);
+  if(wy){for(let k=0;k<n;k++)if(wy[k]>=7)go[k]=2;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(go[k]!==2)continue; const r=wy[k]===9?2:1;
+      for(let j=-r;j<=r;j++)for(let i=-r;i<=r;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!go[m])go[m]=1}}}
   for(let k=0;k<n;k++){const wv=wy?wy[k]:0, t=dens[k];let f=t<35?0:t<65?(t-35)/30*1.2:1.2+(t-65)/35*4;
-    if(wv>=8)f=-0.45; else if(wv===7)f=-0.4; else if(go[k]===2)f=-0.35; else if(go[k]===1)f=Math.min(f,0)-0.15;
-    fac[k]=1+Math.max(-0.45,f)}
+    if(wv>=8)f=-0.6; else if(wv===7)f=-0.4; else if(go[k]===1)f=Math.min(f,0)-(nearPiste(k)?0.5:0.15);
+    else if(wv>=1&&wv<=3)f=Math.min(f,0.25);              // a path through forest: no need to fight through the trees
+    fac[k]=1+Math.max(-0.6,f)}
+  function nearPiste(k){const x=k%w,y=(k-x)/w;for(let j=-2;j<=2;j++)for(let i=-2;i<=2;i++){const xx=x+i,yy=y+j;if(xx>=0&&yy>=0&&xx<w&&yy<h&&wy[yy*w+xx]>=8)return true}return false}
   T.wy=wy; T.go=go;
   const nx=(w+1)>>1, ny=(h+1)>>1, NN=nx*ny, D=17;
   const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
@@ -292,12 +294,16 @@ function skinTrack(axis,p,I){
   const slopeNear=i=>{let m=0,c=0;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++){m+=slope[cellAt(R[i][0]+k,R[i][1]+j)];c++}return m/c};
   // gully floor: the least steep cell around (walls next to a narrow gully would make it look steeper)
   const slopeFloor=i=>{let m=90;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++)m=Math.min(m,slope[cellAt(R[i][0]+k,R[i][1]+j)]);return m};
+  // on a steep piste the zigzags stay on the piste
+  const okWay=(x,y)=>ok(x,y)&&go&&go[cellAt(x,y)]>0;
+  let okL=ok;
   const room=(i,sg)=>{const t=tang(i),nx=-t[1]*sg,ny=t[0]*sg,maxHW=reach(slopeNear(i))/T.cs[Math.round(R[i][1])];let r=0;
-    while(r<maxHW&&ok(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
+    while(r<maxHW&&okL(R[i][0]+nx*(r+0.5),R[i][1]+ny*(r+0.5)))r+=0.5; return r};
   let i=0, done=-1;
   while(i<n-1){
     if(!steep[i]||i===done){i++;out.push(R[i]);continue}
     let e=i; while(e<n-1&&steep[e+1])e++;                 // steep section i..e: zigzag from R[i] up to R[e]
+    {let wc=0; for(let q=i;q<=e;q++)if(onWay(q))wc++; okL=wc>(e-i+1)*0.6?okWay:ok}
     const zEnd=Z[e]; let P=R[i].slice(), k=i, legs=0;
     let side=room(i,1)>=room(i,-1)?1:-1;
     while(legs<300){
@@ -315,7 +321,7 @@ function skinTrack(axis,p,I){
           const upx=gx/gl, upy=gy/gl; let cx=-upy, cy=upx; if((cx*nrm[0]+cy*nrm[1])*side<0){cx=-cx;cy=-cy}
           hx=cb*upx+sb*cx; hy=cb*upy+sb*cy}
         const Q=[P[0]+hx*0.5,P[1]+hy*0.5];
-        if(!ok(Q[0],Q[1]))break;
+        if(!okL(Q[0],Q[1]))break;
         P=Q; len+=0.5; moved=true; k=nearest(P,k);
         if(len%2===0)out.push(P.slice());                  // keep the leg's shape (it follows the terrain), a point every ~20 m
         const off=(P[0]-R[k][0])*nrm[0]+(P[1]-R[k][1])*nrm[1];
