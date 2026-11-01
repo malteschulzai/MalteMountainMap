@@ -38,7 +38,12 @@ await new Promise(res=>srv.listen(8790,"127.0.0.1",res));
 const browser=await chromium.launch();
 let page=null;
 async function fresh(){if(page)await page.close().catch(()=>{});page=await browser.newPage();
-  page.on("console",m=>{if(m.type()==="error")console.log("  [page]",m.text().slice(0,200))});
+  page.on("console",m=>{if(m.type()==="error"&&!/r2\.dev|index\.json|404/.test(m.text()))console.log("  [page]",m.text().slice(0,200))});
+  // slow downloads (also from the build worker): which data source holds things up
+  const t0=new Map();
+  page.on("request",r=>t0.set(r,Date.now()));
+  const slow=(r,how)=>{const t=Date.now()-(t0.get(r)||Date.now()); t0.delete(r); if(t>15000)console.log(`  langsam ${(t/1e3).toFixed(0)} s ${how}: ${new URL(r.url()).host}${new URL(r.url()).pathname.slice(0,60)}`)};
+  page.on("requestfinished",r=>slow(r,"ok")); page.on("requestfailed",r=>slow(r,"fehlgeschlagen "+(r.failure()||{}).errorText));
   await page.goto("http://127.0.0.1:8790/tools/prebuild.html");await page.waitForFunction(()=>window.MMM_buildPack&&window.MMMSrc)}
 await fresh();
 
