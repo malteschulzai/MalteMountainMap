@@ -201,7 +201,9 @@ async function computeWinter(quiet){
     const fS=1-smooth(P.steepLo+hold,P.steepHi+hold,s);
     const sun=P.sun*Math.min(1,south[k]/160)*(1-smooth(L+500,L+1300,e))*(1-0.45*ns);
     const wind=noWind?0:Math.max(-0.45,Math.min(0.45,shelter[k]/(P.wind*2.5)))*(1-0.25*ns);
-    const v=fE*fS*(1+P.bonus+0.3*ns+P.form*(1.8*gully-ridge*(1-0.4*ns))+0.35*Math.min(1,gully*2)+wind-sun);
+    // ridges and slopes near the crest lose snow mainly to wind: without wind only a little scouring
+    const scour=ridge*(1-0.4*ns)*(noWind?0.3:1);
+    const v=fE*fS*(1+P.bonus+0.3*ns+P.form*(1.8*gully-scour)+0.35*Math.min(1,gully*2)+wind-sun);
     data[k*4+2]=smooth(P.lo,P.hi,v)*255;
   }
   dataTex.needsUpdate=true; winterKey=key; shared.bury.value=Math.max(0,P.bury-0.35*ns); shared.crownSnow.value=Math.min(1,P.crown+0.25*ns);
