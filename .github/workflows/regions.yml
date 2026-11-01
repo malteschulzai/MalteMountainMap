@@ -33,6 +33,20 @@ jobs:
           E: ${{ secrets.R2_ENDPOINT }}
         run: |
           if [ -z "$K" ] || [ -z "$S" ] || [ -z "$E" ]; then echo "::error::Secrets R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY und R2_ENDPOINT fehlen"; exit 1; fi
+      - name: Hochladen nach R2 testen
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          command -v aws >/dev/null || pip install --quiet awscli
+          EP="${R2_ENDPOINT%/}"; EP="${EP%/firstline-regions}"
+          echo "ok $(date -u +%FT%TZ)" > probe.txt
+          aws s3 cp probe.txt s3://firstline-regions/probe.txt --endpoint-url "$EP" --content-type text/plain
+          sleep 3; curl -sSf "$PUBLIC/probe.txt"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
