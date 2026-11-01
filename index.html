@@ -105,7 +105,22 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .spt svg{width:22px;height:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
 .spt span{font:600 11px/1.1 var(--font-body);color:#1b2420;text-shadow:0 0 3px #fff,0 0 3px #fff;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .pmark.via{background:#fff;color:#1b2420;border-color:#1b2420;padding:3px 7px}
-.planbar{z-index:6}
+.planbar{z-index:6;padding:8px 10px;gap:6px}
+.pbtop,.pbrow{display:flex;align-items:center;gap:6px}
+.pbtop .seg{margin-right:auto}
+.seg{display:inline-flex;background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:2px}
+.seg button{font:600 13px/1 var(--font-body);border:0;background:transparent;color:var(--muted);border-radius:999px;padding:7px 11px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.ib{width:36px;height:36px;flex:0 0 36px;display:grid;place-items:center;border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;cursor:pointer;padding:0}
+.ib svg{width:18px;height:18px}
+.pbrow .btn.primary{margin-left:auto;padding:10px 16px}
+.btn:disabled{opacity:.45;cursor:default}
+#pbInfo{font-size:13px;line-height:1.35}
+#pbName{flex:1;min-width:0;font:500 15px var(--font-body);padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--chip);color:var(--ink)}
+.tours{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.tour{border:1px solid var(--line);border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:6px}
+.tour b{font-size:14px}.tour .hint{font-size:12px}
+.tour .row .btn{padding:7px 10px;font-size:13px}
 .tool[aria-pressed="true"]{background:#1a73e8;color:#fff;border-color:#1a73e8}
 .offsel{position:absolute;inset:0;z-index:6;pointer-events:none}
 .offframe{position:absolute;left:8%;right:8%;top:16%;bottom:34%;border:3px solid #1a73e8;border-radius:6px;box-shadow:0 0 0 4000px rgba(10,20,30,.4)}
@@ -297,10 +312,13 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <div class="row" style="margin-top:6px" role="group" aria-label="Kartenart"><button class="chip" data-ov="relief" aria-pressed="true">Relief</button><button class="chip" data-ov="topo" aria-pressed="false">Topo mit Namen</button></div></div><button class="btn primary" id="ovClose">Zurück zu 3D</button></div>
     </div>
     <div class="offbar planbar" id="planBar" hidden>
-      <div class="row" style="justify-content:space-between"><div class="row" role="group" aria-label="Tourart"><button class="chip" data-pmode="ski" aria-pressed="true">Skitour</button><button class="chip" data-pmode="hike" aria-pressed="false">Bergtour</button></div><button class="btn" id="pbSettings">Einstellungen</button></div>
-      <div id="pbInfo" style="font-size:14px;line-height:1.35">Tippe den Startpunkt in die Karte.</div>
-      <div class="row"><button class="btn" id="pbUndo">Rückgängig</button><button class="btn" id="pbHere">Standort</button><button class="btn" id="pbClear">Neu</button><button class="btn primary" id="pbDone">Fertig</button></div>
-      <div class="hint" style="font-size:12px">Tippen auf die Linie fügt einen Zwischenpunkt ein, Tippen auf einen Punkt entfernt ihn.</div>
+      <div class="pbtop"><div class="seg" role="group" aria-label="Tourart"><button data-pmode="ski" aria-pressed="true">Skitour</button><button data-pmode="hike" aria-pressed="false">Bergtour</button></div>
+        <button class="ib" id="pbSettings" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+        <button class="ib" id="pbClose" aria-label="Planen beenden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div id="pbInfo">Tippe den Startpunkt in die Karte.</div>
+      <div class="pbrow" id="pbTools"><button class="ib" id="pbUndo" aria-label="Letzten Punkt entfernen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button><button class="ib" id="pbHere" aria-label="Eigenen Standort als Punkt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button><button class="ib" id="pbClear" aria-label="Neu beginnen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+        <button class="btn primary" id="pbDone" disabled>Speichern</button></div>
+      <form class="pbrow" id="pbSaveRow" hidden><input id="pbName" maxlength="60" aria-label="Name der Tour" enterkeyhint="done"><button class="btn primary" type="submit">Speichern</button><button class="ib" type="button" id="pbSaveCancel" aria-label="Abbrechen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
     </div>
     <div class="pcard card" id="pointCard" hidden>
       <button class="xbtn" id="pointClose" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -395,11 +413,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <h2>Winter</h2>
         <div class="wctl">
           <label for="snowLvl">Schneemenge</label>
-          <select id="snowLvl"><option value="0">wenig</option><option value="1">normal</option><option value="2" selected>viel</option></select>
+          <select id="snowLvl"><option value="0">wenig</option><option value="1" selected>normal</option><option value="2">viel</option></select>
           <label for="lineN">Schneegrenze Nordseite</label>
-          <div class="rng"><input type="range" id="lineN" min="400" max="2600" step="50" value="650"><output id="lineNOut" for="lineN">650 m</output></div>
+          <div class="rng"><input type="range" id="lineN" min="400" max="2600" step="50" value="900"><output id="lineNOut" for="lineN">900 m</output></div>
           <label for="lineS">Schneegrenze Südseite</label>
-          <div class="rng"><input type="range" id="lineS" min="400" max="2600" step="50" value="950"><output id="lineSOut" for="lineS">950 m</output></div>
+          <div class="rng"><input type="range" id="lineS" min="400" max="2600" step="50" value="1250"><output id="lineSOut" for="lineS">1250 m</output></div>
           <label for="wind">Hauptwind aus</label>
           <select id="wind"><option value="0" selected>kein Wind</option><option>N</option><option>NO</option><option>O</option><option>SO</option><option>S</option><option>SW</option><option>W</option><option>NW</option></select>
           <label for="newSnow">Neuschnee</label>
@@ -484,6 +502,17 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
         <p class="hint" id="installHint" style="margin-top:6px" aria-live="polite"></p>
       </div>
 
+      <div class="sec" data-tab="profile">
+        <h2 style="margin-top:0">Meine Touren</h2>
+        <p class="hint">Geplante Touren speicherst du im Planer mit „Speichern“. Sie liegen auf diesem Gerät.</p>
+        <div class="tours" id="tourList"></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="toursExport">Sicherung herunterladen</button><label class="btn" for="toursImport">Sicherung einlesen</label><input type="file" id="toursImport" accept=".json,application/json" hidden></div>
+        <p class="hint" id="toursStatus" aria-live="polite"></p>
+        <h2 style="margin-top:14px">Konto</h2>
+        <p class="hint">Ein Konto zum Sichern und Abgleichen zwischen Handy und Computer ist in Vorbereitung. Bis dahin bringt die Sicherungsdatei deine Touren auf ein anderes Gerät.</p>
+        <div class="row" style="margin-top:10px"><button class="btn" id="openInfo">Info und Datenquellen</button></div>
+      </div>
+
       <div class="sec" data-tab="info">
         <p style="margin:0 0 4px;font-weight:600">Firstline Map</p>
         <p class="hint" id="subtitle">Nordkette · Luftbild auf Laserscan-Gelände</p>
@@ -502,7 +531,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
     <button data-open="plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg><span>Planen</span></button>
     <button data-open="slopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18L9 6 3 20z"/><path d="M9 6l3 6"/><path d="M14 9l2-2 5 13"/></svg><span>Hänge</span></button>
     <button data-open="offline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg><span>Offline</span></button>
-    <button data-open="info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Info</span></button>
+    <button data-open="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Profil</span></button>
   </nav>
 </div>
 
@@ -514,12 +543,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=79"></script>
-<script src="js/config.js?v=79"></script>
-<script src="js/geo.js?v=79"></script>
-<script src="js/borders.js?v=79"></script>
-<script src="js/sources.js?v=79"></script>
-<script src="js/region.js?v=79"></script>
-<script src="js/app.js?v=79"></script>
+<script src="data/nordkette-meta.js?v=80"></script>
+<script src="js/config.js?v=80"></script>
+<script src="js/geo.js?v=80"></script>
+<script src="js/borders.js?v=80"></script>
+<script src="js/sources.js?v=80"></script>
+<script src="js/region.js?v=80"></script>
+<script src="js/app.js?v=80"></script>
 </body>
 </html>

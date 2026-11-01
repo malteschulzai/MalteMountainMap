@@ -116,6 +116,7 @@ function astar(p,I){
 }
 // Ski tours: A* on a 20 m lattice with the direction of travel in the state. With corridor=true it finds
 // where to go up (zigzag length already counted), skinTrack() then lays the actual zigzags into it.
+const REACH=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.7:10;
 function astarSki(p,I){
   const {w,h,n,z,cs,slope,dens,free}=T, ways=p.ways;
   const fac=new Float32Array(n);
@@ -151,14 +152,18 @@ function astarSki(p,I){
       // corridor: where to go up, not yet how. Climbing steeper than the skin track angle costs the length of
       // the zigzags it needs (dz / tan(skin angle)) plus kick turns; ground too steep to zigzag on is avoided.
       const sm=Math.max(slope[m],slope[mid]), onWay=wy&&wy[m]>=7&&wy[c]>=7;
+      // climbing a steep slope is hard work even in zigzags: short legs, many kick turns, slipping skins.
+      // Real tracks take the gentler ground next to it when there is some (from about 28°, strongly from 33°).
+      const stp=dz>0?1+(Math.min(37,Math.max(27,sm))-27)**2/36:1;
       if(sm>=BOOT&&dz>0){
         // too steep for skins: boot pack straight up, slow, hard and exposed
-        let b=d*0.015+dz*3.2; if(sm>50)b*=8;            // only where there is no reasonable way around
+        let b=(d*0.015+dz*3.2)*stp; if(sm>50)b*=8;      // only where there is no reasonable way around
         b*=(fac[c]+fac[mid]+fac[m])/3;
         const hz=(I[c]+I[mid]+I[m])/3; return b+d*0.015*p.weight*30*hz*hz}
       // on pistes, ski tour lines and forest roads the track goes straight up to about 20°
-      const tanS=onWay?TANW:TANS, dEff=dz>0?Math.max(d,dz/tanS):d, kicks=dz>0&&dz/d>tanS?dz/11*0.1:0;
-      let wall=sm>37?1+((sm-37)/2.5)**2:1;
+      // kick turns: one per leg, legs get short on steep ground (same widths as the skin track below)
+      const tanS=onWay?TANW:TANS, dEff=dz>0?Math.max(d,dz/tanS):d, kicks=dz>0&&dz/d>tanS?dz/(2*REACH(sm)*tanS)*0.15:0;
+      let wall=(sm>37?1+((sm-37)/2.5)**2:1)*(onWay?1:stp);
       // zigzags need room: in a gully narrower than ~20 m between steep walls kick turns get very short and awkward
       if(dz>0&&dz/d>tanS){const fr=Math.min(free[m],free[mid]); if(fr<2)wall*=1+(2-fr)*0.6}
       // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
@@ -233,7 +238,7 @@ function skinTrack(axis,p,I){
   // free room across the corridor at axis index i: cells to the left (+) and right (-) of the axis
   // how far a leg reaches to each side, from the reference track (Nordkette, 27.11.2025): on moderate slopes
   // long legs, on steep ones short legs of 20 to 30 m with many kick turns
-  const reach=sl=>sl<=20?100:sl<=25?100-(sl-20)*8:sl<=30?60-(sl-25)*7:sl<=34?25-(sl-30)*3.7:10;
+  const reach=REACH;
   const slopeNear=i=>{let m=0,c=0;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++){m+=slope[cellAt(R[i][0]+k,R[i][1]+j)];c++}return m/c};
   // gully floor: the least steep cell around (walls next to a narrow gully would make it look steeper)
   const slopeFloor=i=>{let m=90;for(let j=-1;j<=1;j++)for(let k=-1;k<=1;k++)m=Math.min(m,slope[cellAt(R[i][0]+k,R[i][1]+j)]);return m};

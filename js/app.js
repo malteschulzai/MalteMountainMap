@@ -214,7 +214,7 @@ async function computeWinter(quiet){
 const snowText=v=>v<0.12?"kaum Schnee, Fels oder abgeblasen":v<0.45?"lückige Schneedecke":v<0.85?"geschlossene Schneedecke":"durchgehend Schnee, Mulde oder Triebschnee";
 
 // ---------- State ----------
-const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,snowfc:false,fcHours:72,tours:false,winter:true,wind:"0",snow:2,lineN:650,lineS:950,exag:1};
+const state={season:"winter",danger:false,stations:false,newSnow:"0",forest:false,ao:true,base:"ortho",slope:false,aspect:false,trees:true,contour:false,route:true,labels:true,pistes:true,paths:false,snowgrid:false,snowfc:false,fcHours:72,tours:false,winter:true,wind:"0",snow:1,lineN:900,lineS:1250,exag:1};
 // settings survive switching to another area of Tirol
 const SAVE_KEYS=["season","danger","stations","newSnow","forest","ao","base","slope","aspect","trees","contour","labels","pistes","paths","snowfc","fcHours","tours","winter","wind","snow","lineN","lineS","exag"];
 function saveState(){try{sessionStorage.setItem("mmm-state",JSON.stringify(Object.fromEntries(SAVE_KEYS.map(k=>[k,state[k]]))))}catch(e){}}
@@ -1323,8 +1323,10 @@ function buildOverlay(){
 const labelsEl=$("labels");
 const RANK={place:4000,peak:0,hut:-200,lift:-400,saddle:-800};
 const labelNodes=[], labelNames=new Set();
+const nameLabels=[];   // peaks, saddles, huts: used to name a saved tour after its goal
 function addLabels(list){
   for(const L of list){
+    if((L.t==="peak"||L.t==="saddle"||L.t==="hut")&&L.name&&L.lon!==undefined)nameLabels.push(L);
     const key=L.t+"|"+L.name; if(labelNames.has(key))continue; labelNames.add(key);
     const el=document.createElement("div"); el.className="lbl "+L.t;
     const h=L.h?`<span class="h">${fmt(L.h)} m</span>`:"";
@@ -1855,8 +1857,9 @@ const PLAN_NAMES={ski:"Geplante Skitour",hike:"Geplante Bergtour"};
 function hhmm(h){const m=Math.round(h*60/5)*5;return `${Math.floor(m/60)}:${String(m%60).padStart(2,"0")} h`}
 function planInfo(){
   const box=$("pbInfo");
+  $("pbDone").disabled=!(route&&route.stats&&plan.pts.length>1&&!planBusy);
   if(!plan.pts.length){box.textContent="Tippe den Startpunkt in die Karte.";return}
-  if(plan.pts.length===1){box.textContent="Tippe den nächsten Punkt. Du kannst beliebig viele setzen.";return}
+  if(plan.pts.length===1){box.textContent="Tippe das Ziel. Auf die Linie tippen fügt später einen Zwischenpunkt ein.";return}
   if(planBusy){box.textContent="Route wird berechnet …";return}
   if(!route||!route.stats){box.textContent="Keine Route gefunden.";return}
   const st=route.stats, km=st.dist/1000;
@@ -1864,7 +1867,8 @@ function planInfo(){
   const hz=km/4, vt=plan.mode==="hike"?st.up/300+st.down/500:st.up/400, t=Math.max(hz,vt)+Math.min(hz,vt)/2;
   const risk=route.plan?` · Risiko ${route.plan.score<1?"gering":route.plan.score<2?"erhöht":"hoch"}`:"";
   const boot=route.plan&&route.plan.boot>=15?` · Stapfen ca. ${fmt(Math.round(route.plan.boot/10)*10)} Hm`:"";
-  box.innerHTML=`<b>${fmt(km,1)} km · ${fmt(Math.round(st.up/10)*10)} Hm hoch · ${fmt(Math.round(st.down/10)*10)} Hm runter</b><br>${plan.mode==="hike"?"Gehzeit":"Aufstieg"} ca. ${hhmm(t)}${risk}${boot}`;
+  box.innerHTML=`<b>${fmt(km,1)} km · ${fmt(Math.round(st.up/10)*10)} Hm ↑ · ${fmt(Math.round(st.down/10)*10)} Hm ↓</b> · ${plan.mode==="hike"?"Gehzeit":"Aufstieg"} ca. ${hhmm(t)}${risk}${boot}`;
+  plan.time=t;
 }
 function applyPlanRoute(){
   const all=[]; plan.segs.forEach((s,i)=>{if(s)s.forEach((p,j)=>{if(i&&!j)return;all.push(p)})});
@@ -1896,8 +1900,8 @@ function startPlan(){
   plan.key=planKey(); planInfo(); getPlanner().catch(()=>{}); needsRender=true;
 }
 function endPlan(){
-  plan.active=false; $("planBar").hidden=true; needsRender=true;
-  if(route){fitRoute("3d"); statusEl.textContent="Route fertig. Profil und GPX unter Planen."}
+  plan.active=false; $("planBar").hidden=true; $("pbSaveRow").hidden=true; $("pbTools").hidden=false; needsRender=true;
+  if(route)fitRoute("3d");
 }
 function planTap(gx,gy){
   // a tap close to the drawn route inserts a stop on that leg, anywhere else the route is extended
@@ -1925,7 +1929,23 @@ $("planSwap").onclick=()=>{if(plan.pts.length<2)return;plan.pts.reverse();recomp
 $("planRun").onclick=()=>{if(plan.pts.length>1){recomputePlan();openPanel(null)}};
 $("pbUndo").onclick=()=>{plan.pts.pop();plan.segs.length=Math.max(0,plan.pts.length-1);applyPlanRoute()};
 $("pbClear").onclick=()=>{plan.pts=[];plan.segs=[];route=null;buildRouteLine();planInfo();needsRender=true};
-$("pbDone").onclick=endPlan;
+$("pbClose").onclick=endPlan;
+// save: name it (nearest peak or hut at the goal if there is one), then it is listed under Profil
+$("pbDone").onclick=()=>{if(!route||!route.stats)return;
+  const g=plan.pts[plan.pts.length-1]; let nm="";
+  try{let bd=1e9;for(const l of nameLabels){if(l.t!=="peak"&&l.t!=="hut"&&l.t!=="saddle")continue;const d=Math.hypot(lonToX(l.lon)-g[0],latToY(l.lat)-g[1])*CELL;if(d<bd&&d<350){bd=d;nm=l.name}}}catch(e){}
+  $("pbName").value=nm||((plan.mode==="hike"?"Bergtour ":"Skitour ")+new Date().toLocaleDateString("de-AT"));
+  $("pbTools").hidden=true; $("pbSaveRow").hidden=false; $("pbName").focus(); $("pbName").select()};
+$("pbSaveCancel").onclick=()=>{$("pbSaveRow").hidden=true;$("pbTools").hidden=false};
+$("pbSaveRow").onsubmit=e=>{e.preventDefault(); if(!route||!route.stats)return;
+  const name=$("pbName").value.trim()||"Tour", step=Math.max(1,Math.ceil(route.samples.length/800));
+  const pts=route.samples.filter((s,i)=>i%step===0||i===route.samples.length-1).map(s=>[+xToLon(s.gx).toFixed(6),+yToLat(s.gy).toFixed(6),Math.round(s.e)]);
+  const t={id:Date.now().toString(36),name,mode:plan.mode,date:new Date().toISOString(),pts,
+    wp:plan.pts.map(p=>[+xToLon(p[0]).toFixed(6),+yToLat(p[1]).toFixed(6)]),
+    stats:{dist:Math.round(route.stats.dist),up:Math.round(route.stats.up),down:Math.round(route.stats.down),time:plan.time||0,boot:route.plan?Math.round(route.plan.boot):0}};
+  const all=loadTours(); all.unshift(t);
+  if(!saveTours(all)){statusEl.textContent="Speicher auf dem Gerät ist voll, Tour nicht gespeichert";return}
+  route.name=name; endPlan(); renderTours(); statusEl.textContent=`„${name}“ gespeichert, zu finden unter Profil`};
 $("pbHere").onclick=()=>{if(me)planTap(lonToX(me.lon),latToY(me.lat)); else {startLocate(); $("pbInfo").textContent="Standort wird gesucht. Tippe gleich nochmal auf Standort."}};
 $("pbSettings").onclick=()=>openPanel("plan");
 document.querySelectorAll("[data-pmode]").forEach(b=>b.onclick=()=>setPlanMode(b.dataset.pmode));
@@ -2627,6 +2647,48 @@ async function showTour(id){
   openPanel(null); fitRoute(is2D()?"2d":"3d");
 }
 document.querySelectorAll("[data-tour]").forEach(b=>b.onclick=()=>showTour(b.dataset.tour));
+
+// ---------- Profil: saved tours (on this device, with a backup file to move them) ----------
+function loadTours(){try{const a=JSON.parse(localStorage.getItem("fl-tours")||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
+function saveTours(a){try{localStorage.setItem("fl-tours",JSON.stringify(a));return true}catch(e){return false}}
+function openSaved(id){
+  const t=loadTours().find(x=>x.id===id); if(!t)return;
+  const inside=t.pts.filter(p=>{const gx=lonToX(p[0]),gy=latToY(p[1]);return gx>=1&&gy>=1&&gx<W-1&&gy<H-1}).length;
+  if(inside<t.pts.length*0.9){const m=t.pts[Math.floor(t.pts.length/2)];try{sessionStorage.setItem("fl-show-saved",id)}catch(e){} goTo(m[0],m[1],t.name);return}
+  setRoute(t.pts.map(p=>[p[0],p[1]]),t.name,`${t.mode==="hike"?"Bergtour":"Skitour"} · ${new Date(t.date).toLocaleDateString("de-AT")}`);
+  openPanel(null); fitRoute(is2D()?"2d":"3d");
+}
+function savedGpx(t){
+  const esc=s=>String(s).replace(/[<&>"]/g,c=>({"<":"&lt;","&":"&amp;",">":"&gt;",'"':"&quot;"}[c]));
+  const x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Firstline Map" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(t.name)}</name><trkseg>\n`+
+    t.pts.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}"><ele>${p[2]}</ele></trkpt>`).join("\n")+`\n</trkseg></trk>\n</gpx>\n`;
+  saveBlob(new Blob([x],{type:"application/gpx+xml"}),t.name.replace(/[^\wäöüÄÖÜß -]/g,"")+".gpx");
+}
+function saveBlob(b,name){const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000)}
+function renderTours(){
+  const box=$("tourList"), all=loadTours(); box.innerHTML="";
+  if(!all.length){box.innerHTML='<p class="hint">Noch keine Touren gespeichert.</p>';return}
+  for(const t of all){const d=document.createElement("div");d.className="tour";
+    const st=t.stats||{};
+    d.innerHTML=`<div><b>${escapeHtml(t.name)}</b><div class="hint">${t.mode==="hike"?"Bergtour":"Skitour"} · ${fmt((st.dist||0)/1000,1)} km · ${fmt(Math.round((st.up||0)/10)*10)} Hm · ${new Date(t.date).toLocaleDateString("de-AT")}</div></div>
+      <div class="row"><button class="btn primary" data-a="show">Anzeigen</button><button class="btn" data-a="gpx">GPX</button><button class="btn" data-a="del">Löschen</button></div>`;
+    d.querySelector('[data-a="show"]').onclick=()=>openSaved(t.id);
+    d.querySelector('[data-a="gpx"]').onclick=()=>savedGpx(t);
+    const del=d.querySelector('[data-a="del"]');
+    del.onclick=()=>{if(del.dataset.sure){saveTours(loadTours().filter(x=>x.id!==t.id));renderTours()}else{del.dataset.sure="1";del.textContent="Wirklich löschen?";setTimeout(()=>{if(del.isConnected){delete del.dataset.sure;del.textContent="Löschen"}},4000)}};
+    box.appendChild(d)}
+}
+$("toursExport").onclick=()=>{const all=loadTours(); if(!all.length){$("toursStatus").textContent="Noch keine Touren zum Sichern.";return}
+  saveBlob(new Blob([JSON.stringify({app:"Firstline Map",v:1,tours:all})],{type:"application/json"}),"firstline-touren-"+new Date().toISOString().slice(0,10)+".json")};
+$("toursImport").onchange=async e=>{const f=e.target.files[0]; e.target.value=""; if(!f)return;
+  try{const j=JSON.parse(await f.text()), list=(j.tours||[]).filter(t=>t&&t.id&&t.name&&Array.isArray(t.pts)&&t.pts.length>1);
+    const all=loadTours(), have=new Set(all.map(t=>t.id)), add=list.filter(t=>!have.has(t.id));
+    saveTours([...add,...all].sort((a,b)=>String(b.date).localeCompare(String(a.date)))); renderTours();
+    $("toursStatus").textContent=add.length?`${add.length} Touren eingelesen.`:"Keine neuen Touren in der Datei."}
+  catch(err){$("toursStatus").textContent="Die Datei ist keine Sicherung von Firstline Map."}};
+$("openInfo").onclick=()=>openPanel("info");
+renderTours();
+try{const t=sessionStorage.getItem("fl-show-saved"); if(t){sessionStorage.removeItem("fl-show-saved"); setTimeout(()=>openSaved(t),600)}}catch(e){}
 try{const t=sessionStorage.getItem("lf-show-tour"); if(t){sessionStorage.removeItem("lf-show-tour"); setTimeout(()=>showTour(t),600)}}catch(e){}
 
 // ---------- Season: one tap between winter (snow model, pistes, ski tours) and summer (photo, paths, hikes) ----------
@@ -2671,7 +2733,7 @@ if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch
 
 // ---------- Collapsible panel ----------
 // ---------- Panels, tab bar, quick chips, round buttons ----------
-const panel=$("panel"), TAB_TITLES={aval:"Lawinenlage",map:"Karte",plan:"Tour planen",slopes:"Hangsuche",offline:"Offline-Karten",info:"Info"};
+const panel=$("panel"), TAB_TITLES={aval:"Lawinenlage",map:"Karte",plan:"Tour planen",slopes:"Hangsuche",offline:"Offline-Karten",info:"Info",profile:"Profil"};
 let curTab=null;
 function openPanel(tab){
   curTab=tab||null; panel.hidden=!curTab;
