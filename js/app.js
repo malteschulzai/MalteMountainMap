@@ -1232,6 +1232,15 @@ function processOsm(j1,j2){
     const pts=el.geometry.map(g=>[lonToX(g.lon),latToY(g.lat)]);
     if(!pts.some(p=>inside(p[0],p[1])))continue;
     let kind,color,dashed=false,label,grade=0,air=false,track=false,unrated=false;
+    // a piste that runs along a forest road or footpath (highway=track/footway + piste:type) is both:
+    // the piste line for winter, the path for hikes
+    if(tg.highway&&(tg["piste:type"]==="downhill"||tg["piste:type"]==="skitour")&&tg.area!=="yes"){
+      const pd=tg["piste:difficulty"]||"intermediate", nm=tg["piste:name"]||tg.name;
+      let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(p=>{bx0=Math.min(bx0,p[0]);bx1=Math.max(bx1,p[0]);by0=Math.min(by0,p[1]);by1=Math.max(by1,p[1])});
+      ways.push(tg["piste:type"]==="downhill"
+        ?{kind:"piste",color:PISTE_COL[pd]||"#d7301f",dashed:false,label:(nm?nm+" · ":"")+(PISTE_NAME[pd]||"Piste"),grade:0,air:false,track:false,pts,bx0,bx1,by0,by1}
+        :{kind:"tour",color:"#7b2d8e",dashed:true,label:(nm?nm+" · ":"")+"Skitourenroute (OpenStreetMap)",grade:0,air:false,track:false,pts,bx0,bx1,by0,by1});
+    }
     if(tg.highway==="track"){kind="path";track=true;color="#b88a4a";label=(tg.name?tg.name+" · ":"")+"Forstweg"+(tg.tracktype?" ("+tg.tracktype.replace("grade","Klasse ")+")":"");grade=SAC[tg.sac_scale]||0}
     else if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
     else if(tg.highway==="path"||tg.highway==="footway"){grade=1;kind="path";color="#9a8f7a";dashed=true;label=(tg.name?tg.name+" · ":"")+"Weg ohne Schwierigkeitsangabe";unrated=true}
