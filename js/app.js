@@ -10,6 +10,8 @@ const META=REG?REG.meta:window.MMM_META;
 const APPV=(document.querySelector('script[src*="js/app.js"]').src.match(/v=(\d+)/)||[])[1]||"0";
 const $=id=>document.getElementById(id);
 const mapEl=$("map"), loadEl=$("loading"), statusEl=$("status");
+// the start screen shows what is being loaded, and any error, until the map is ready
+if($("splash"))new MutationObserver(()=>{const m=$("splashMsg"); if(m)m.textContent=loadEl.hidden?"":loadEl.textContent}).observe(loadEl,{childList:true,characterData:true,subtree:true,attributes:true});
 const tick=msg=>{loadEl.textContent=msg;return new Promise(r=>setTimeout(r,20))};
 
 // ---------- Grid: Web-Mercator metres, ~3 m on the ground ----------
@@ -2925,6 +2927,8 @@ if(REG){
 }else{const L=META.labels.find(l=>l.name==="Hafelekarspitze")||META.labels[0]; lookAt(lonToX(L.lon),latToY(L.lat)+260,32,"3d")}
 applyUniforms();
 loadEl.hidden=true;
+{const sp=$("splash"); if(sp){const wait=Math.max(0,1100-(Date.now()-(window.__splashT||0)));
+  setTimeout(()=>{sp.classList.add("out");setTimeout(()=>sp.remove(),600)},wait)}}
 setTimeout(loadOsm,1500);
 computeAO();
 if(state.danger)buildDanger().catch(()=>{});

@@ -95,6 +95,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 .exag{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .exag input{width:84px;accent-color:var(--accent)}
 .exag output{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;min-width:2.6em}
+.splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:radial-gradient(120% 80% at 50% 30%,#14264d,#070f24 70%);color:#eef2f7;transition:opacity .45s ease}
+.splash.out{opacity:0;pointer-events:none}
+.splash img{width:112px;height:112px;border-radius:26px;box-shadow:0 10px 40px rgba(0,0,0,.45);margin-bottom:14px}
+.splash .sp-name{font:700 34px/1 var(--font-display);letter-spacing:.04em;text-transform:uppercase}
+.splash .sp-by{font:500 14px var(--font-body);color:#a9b6cc;letter-spacing:.04em}
+.splash .sp-msg{position:absolute;bottom:calc(36px + env(safe-area-inset-bottom));font:500 13px var(--font-body);color:#8d9bb3;padding:0 24px;text-align:center}
 .loading{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;font:600 16px var(--font-display);letter-spacing:.06em;text-transform:uppercase;color:#3b4640}
 .snap{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;pointer-events:none;transition:opacity .7s ease}
 .map.snapping .loading{inset:auto;top:64px;left:50%;transform:translateX(-50%);z-index:2;background:rgba(255,255,255,.92);border-radius:999px;padding:8px 16px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
@@ -245,6 +251,8 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 
 </head>
 <body>
+<div class="splash" id="splash" aria-hidden="true" onclick="this.classList.add('out')"><img src="icon.svg" alt=""><div class="sp-name">Firstline Map</div><div class="sp-by">by Malte</div><div class="sp-msg" id="splashMsg"></div></div>
+<script>/* start screen only on a fresh start, not when switching to another area */try{if(new URLSearchParams(location.search).has("t"))document.getElementById("splash").remove();else window.__splashT=Date.now()}catch(e){}</script>
 <div class="app">
 
   <div class="map" id="map">
@@ -543,12 +551,12 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-siz
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-<script src="data/nordkette-meta.js?v=81"></script>
-<script src="js/config.js?v=81"></script>
-<script src="js/geo.js?v=81"></script>
-<script src="js/borders.js?v=81"></script>
-<script src="js/sources.js?v=81"></script>
-<script src="js/region.js?v=81"></script>
-<script src="js/app.js?v=81"></script>
+<script src="data/nordkette-meta.js?v=82"></script>
+<script src="js/config.js?v=82"></script>
+<script src="js/geo.js?v=82"></script>
+<script src="js/borders.js?v=82"></script>
+<script src="js/sources.js?v=82"></script>
+<script src="js/region.js?v=82"></script>
+<script src="js/app.js?v=82"></script>
 </body>
 </html>

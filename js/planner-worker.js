@@ -155,19 +155,23 @@ function astarSki(p,I){
       // climbing a steep slope is hard work even in zigzags: short legs, many kick turns, slipping skins.
       // Real tracks take the gentler ground next to it when there is some (from about 28°, strongly from 33°).
       const stp=dz>0?1+(Math.min(37,Math.max(27,sm))-27)**2/36:1;
+      const wall=sm>37?1+((sm-37)/2.5)**2:1;
       if(sm>=BOOT&&dz>0){
-        // too steep for skins: boot pack straight up, slow, hard and exposed
-        let b=(d*0.015+dz*3.2)*stp; if(sm>50)b*=8;      // only where there is no reasonable way around
+        // too steep for skins: boot pack straight up, slow, hard and exposed, the steeper the worse.
+        // Avalanche exposure counted by time like a skin track (dz/tan(skin angle)), not by the short
+        // straight distance, otherwise a rock face next to a gully looks safer than the gully itself.
+        let b=(d*0.015+dz*3.2)*stp*(1+((sm-BOOT)/3)**2); if(sm>50)b*=8;   // only where there is no reasonable way around
         b*=(fac[c]+fac[mid]+fac[m])/3;
-        const hz=(I[c]+I[mid]+I[m])/3; return b+d*0.015*p.weight*30*hz*hz}
+        const hz=(I[c]+I[mid]+I[m])/3; return b+Math.max(d,dz/TANS)*0.015*p.weight*30*hz*hz*wall}
       // on pistes, ski tour lines and forest roads the track goes straight up to about 20°
       // kick turns: one per leg, legs get short on steep ground (same widths as the skin track below)
       const tanS=onWay?TANW:TANS, dEff=dz>0?Math.max(d,dz/tanS):d, kicks=dz>0&&dz/d>tanS?dz/(2*REACH(sm)*tanS)*0.15:0;
-      let wall=(sm>37?1+((sm-37)/2.5)**2:1)*(onWay?1:stp);
+      // effort grows with steepness (stp), the avalanche term only with the wall factor as before
+      let eff=wall*(onWay?1:stp);
       // zigzags need room: in a gully narrower than ~20 m between steep walls kick turns get very short and awkward
-      if(dz>0&&dz/d>tanS){const fr=Math.min(free[m],free[mid]); if(fr<2)wall*=1+(2-fr)*0.6}
+      if(dz>0&&dz/d>tanS){const fr=Math.min(free[m],free[mid]); if(fr<2)eff*=1+(2-fr)*0.6}
       // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
-      let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*wall;
+      let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*eff;
       if(slope[m]>50||slope[mid]>50)b*=8;
       b*=(fac[c]+fac[mid]+fac[m])/3;
       const hz=(I[c]+I[mid]+I[m])/3; return b+dEff*0.015*p.weight*30*hz*hz*wall}
