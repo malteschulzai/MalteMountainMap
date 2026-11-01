@@ -428,6 +428,7 @@ void main(){
     tr *= 1.0-smoothstep(42.0,55.0,slope); sr *= 1.0-smoothstep(45.0,58.0,slope);
     float crownT=obj*tr*(1.0-0.85*treesOn);
     if(ortho) crownT=max(crownT, smoothstep(0.30,0.13,olum)*tr);
+    if(hasForest<0.5) crownT=max(crownT, tr*0.8);   // until the Copernicus crown cover has arrived: forest from the laser scan right away
     vec4 fo=texture2D(forestMap,dUv); float tcd=clamp(fo.r*2.55,0.0,1.0), broad=step(0.5,fo.a*255.0)*step(fo.a*255.0,1.5);
     if(hasForest>0.5){
       // crown cover from Copernicus: gaps between crowns where the forest is light
