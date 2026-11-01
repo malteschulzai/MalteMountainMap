@@ -60,7 +60,7 @@ let total=idx.keys.reduce((s,k)=>s+fs.statSync(path.join(out,k+".bin")).size,0);
 console.log(`vorhanden: ${idx.keys.length} Gebiete, ${(total/1e6).toFixed(1)} MB`);
 const save=()=>{idx.built=new Date().toISOString().slice(0,10);fs.writeFileSync(idxFile,JSON.stringify(idx))};
 
-let n=0, fails=0;
+let n=0, fails=0, built=0;
 for(const k of order){
   if(idx.keys.includes(k))continue;
   if(total>BUDGET*0.985||Date.now()>DEADLINE)break;
@@ -71,10 +71,17 @@ for(const k of order){
     const buf=Buffer.from(b64,"base64");
     if(total+buf.length>BUDGET){console.log(`${k}: passt nicht mehr ins Budget`);break}
     fs.writeFileSync(path.join(out,k+".bin"),buf); idx.keys.push(k); idx.sizes[k]=buf.length; total+=buf.length; save();
-    console.log(`${k}: ${(buf.length/1e6).toFixed(2)} MB in ${((Date.now()-t0)/1e3).toFixed(0)} s, gesamt ${(total/1e6).toFixed(0)} MB, ${idx.keys.length} Gebiete`);
-  }catch(e){fails++;console.log(`${k}: Fehler ${String(e.message||e).slice(0,200)}`);await fresh()}
+    const line=`${k}: ${(buf.length/1e6).toFixed(2)} MB in ${((Date.now()-t0)/1e3).toFixed(0)} s, gesamt ${(total/1e6).toFixed(0)} MB, ${idx.keys.length} Gebiete`;
+    console.log(line); built++;
+    // annotations are visible on the run page (and through the API) without opening the log
+    if(built===1||built%15===0)console.log(`::notice title=Fortschritt::${line}`);
+  }catch(e){fails++;const msg=String(e.message||e).slice(0,200);console.log(`${k}: Fehler ${msg}`);
+    if(fails<=5)console.log(`::warning title=Fehler ${k}::${msg.replace(/\n/g," ")}`);
+    if(!built&&fails>=6){console.log("::error::Die ersten Gebiete ließen sich nicht bauen, Abbruch");save();process.exit(1)}
+    await fresh()}
   if(++n%8===0)await fresh();
 }
 save();
 console.log(`fertig: ${idx.keys.length} Gebiete, ${(total/1e6).toFixed(1)} MB, ${fails} Fehler`);
+console.log(`::notice title=Fertig::${idx.keys.length} Gebiete, ${(total/1e6).toFixed(1)} MB, ${fails} Fehler`);
 await browser.close(); srv.close();
