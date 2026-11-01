@@ -393,7 +393,7 @@ void main(){
     col = oc.rgb;
     olum=dot(col,vec3(.299,.587,.114));
     // snow or ice in the summer photo: bright, or bluish where a north face lies in shadow
-    snowP=smoothstep(0.45,0.66,olum+1.2*(oc.b-oc.r))*smoothstep(0.27,0.40,olum)*(1.0-smoothstep(58.0,70.0,slope));
+    snowP=smoothstep(0.45,0.66,olum+1.2*(oc.b-oc.r));
     col *= mix(1.0, 0.72+0.5*sg, 0.38);
     float l2=dot(col,vec3(.299,.587,.114));
     col = clamp(mix(vec3(l2),col,1.18),0.0,1.0);
@@ -443,11 +443,11 @@ void main(){
     vec3 shrubC=mix(vec3(.09,.16,.09)*(0.55+0.9*so), snowCol(so), 0.18);
     vec3 w=snowCol(isPatch>0.5?mix(sg,geoL,0.55):sg);
     if(ortho){
-      // ice and firn already white in the summer photo: keep the photo (crevasses, seracs, bergschrunds)
-      vec3 ice=clamp(oc.rgb*1.06+vec3(0.02,0.03,0.05),0.0,1.0)*mix(1.0,0.78+0.4*(isPatch>0.5?geoL:sg),0.5);
-      w=mix(w, ice, snowP*smoothstep(1800.0,2300.0,vElev)*0.85);
-      // a hint of the ground's texture under fresh snow everywhere else
-      w*=mix(1.0, 0.9+0.2*smoothstep(0.15,0.75,olum), 0.35*(1.0-snowP));
+      // glaciers: keep crevasses and seracs from the summer photo. Only real ice: very bright, bluish and high up,
+      // so bright limestone and scree (Karwendel, Nordkette, below 2700 m) stay under the snow model
+      float glacier=smoothstep(0.60,0.72,olum)*smoothstep(0.0,0.05,oc.b-oc.r)*smoothstep(2700.0,3000.0,vElev);
+      vec3 ice=clamp(oc.rgb*1.04+vec3(0.03,0.04,0.06),0.0,1.0)*mix(1.0,0.8+0.35*(isPatch>0.5?geoL:sg),0.5);
+      w=mix(w, ice, glacier*0.6);
     }
     w=mix(w, shrubC, clamp(crownS,0.0,1.0)*0.92);
     w=mix(w, crownC, clamp(crownT*1.15,0.0,1.0)*0.93);
