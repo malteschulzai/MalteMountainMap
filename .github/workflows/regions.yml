@@ -65,6 +65,14 @@ jobs:
           if curl -sSf "$PUBLIC/b2/index.json" -o out/b2/index.json; then echo "REMOTE=1" >> $GITHUB_ENV; echo "R2: $(grep -o '"keys":\[[^]]*' out/b2/index.json | tr ',' '\n' | wc -l) Gebiete";
           elif gh release download regions -p regions.tar -D /tmp; then tar -xf /tmp/regions.tar -C out && rm /tmp/regions.tar; ls out/b2 | wc -l; fi
       - name: Bauen
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          UPLOAD: bash tools/upload_r2.sh out/b2
         run: |
           mkdir -p out/b2
           node tools/prebuild.mjs out/b2 "${{ inputs.budget || '3000' }}" "${{ inputs.minutes || '300' }}"
@@ -79,12 +87,5 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
         run: |
-          test -f out/b2/index.json || exit 0
-          command -v aws >/dev/null || pip install --quiet awscli
-          EP="${R2_ENDPOINT%/}"; EP="${EP%/firstline-regions}"
-          # areas first (cached a week), the index last, so it never lists a file that is not there yet
-          aws s3 sync out/b2 s3://firstline-regions/b2 --endpoint-url "$EP" --exclude index.json --size-only \
-            --content-type application/octet-stream --cache-control "public, max-age=604800" --only-show-errors
-          aws s3 cp out/b2/index.json s3://firstline-regions/b2/index.json --endpoint-url "$EP" \
-            --content-type application/json --cache-control "public, max-age=300"
+          bash tools/upload_r2.sh out/b2
           echo "::notice title=R2::$(ls out/b2/*.bin 2>/dev/null | wc -l) Dateien hochgeladen"

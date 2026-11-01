@@ -5,6 +5,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import {chromium} from "playwright";
+import {execFileSync} from "node:child_process";
 
 const [out="regions-out", budgetMB="420", minutes="300"]=process.argv.slice(2);
 const ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),"..");
@@ -69,8 +70,10 @@ for(const k of order){
   if(total>BUDGET*0.985||Date.now()>DEADLINE)break;
   const [lon,lat]=cand.get(k), t0=Date.now();
   try{
-    const b64=await page.evaluate(async([lo,la])=>{const u=await MMM_buildPack(lo,la);
-      return await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(",")[1]);fr.readAsDataURL(new Blob([u]))})},[lon,lat]);
+    // one area must not block the whole run: give up after 4 minutes and go on with the next
+    let timer; const b64=await Promise.race([page.evaluate(async([lo,la])=>{const u=await MMM_buildPack(lo,la);
+      return await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(",")[1]);fr.readAsDataURL(new Blob([u]))})},[lon,lat]),
+      new Promise((_,rej)=>{timer=setTimeout(()=>rej(new Error("Zeitüberschreitung (4 min)")),240e3)})]).finally(()=>clearTimeout(timer));
     const buf=Buffer.from(b64,"base64");
     if(total+buf.length>BUDGET){console.log(`${k}: passt nicht mehr ins Budget`);break}
     fs.writeFileSync(path.join(out,k+".bin"),buf); idx.keys.push(k); idx.sizes[k]=buf.length; total+=buf.length; save();
@@ -83,6 +86,8 @@ for(const k of order){
     if(!built&&fails>=6){console.log("::error::Die ersten Gebiete ließen sich nicht bauen, Abbruch");save();process.exit(1)}
     await fresh()}
   if(++n%8===0)await fresh();
+  // upload what is done every 30 areas (UPLOAD is a shell command, see regions.yml), so a stopped run loses little
+  if(process.env.UPLOAD&&built&&built%30===0){try{execFileSync("bash",["-c",process.env.UPLOAD],{stdio:"inherit"})}catch(e){console.log("Zwischen-Upload fehlgeschlagen")}}
 }
 save();
 console.log(`fertig: ${idx.keys.length} Gebiete, ${(total/1e6).toFixed(1)} MB, ${fails} Fehler`);
