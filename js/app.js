@@ -1244,8 +1244,8 @@ function processOsm(j1,j2){
     if(tg.highway==="track"){kind="path";track=true;color="#b88a4a";label=(tg.name?tg.name+" · ":"")+"Forstweg"+(tg.tracktype?" ("+tg.tracktype.replace("grade","Klasse ")+")":"");grade=SAC[tg.sac_scale]||0}
     else if(tg.sac_scale){grade=SAC[tg.sac_scale]||2;kind="path";color=SAC_COL[grade];dashed=true;label=(tg.name?tg.name+" · ":"")+SAC_NAME[grade]}
     else if(tg.highway==="path"||tg.highway==="footway"){grade=1;kind="path";color="#9a8f7a";dashed=true;label=(tg.name?tg.name+" · ":"")+"Weg ohne Schwierigkeitsangabe";unrated=true}
-    else if(tg["piste:type"]==="downhill"){if(tg.area==="yes")continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
-    else if(tg["piste:type"]==="skitour"){kind="tour";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute (OpenStreetMap)"}
+    else if(tg["piste:type"]==="downhill"){if(tg.area==="yes"||tg.highway)continue;kind="piste";const d=tg["piste:difficulty"]||"intermediate";color=PISTE_COL[d]||"#d7301f";label=(tg["piste:name"]||tg.name?(tg["piste:name"]||tg.name)+" · ":"")+(PISTE_NAME[d]||"Piste")}
+    else if(tg["piste:type"]==="skitour"){if(tg.highway)continue;kind="tour";color="#7b2d8e";dashed=true;label=(tg.name?tg.name+" · ":"")+"Skitourenroute (OpenStreetMap)"}
     else if(tg.aerialway||tg.railway==="funicular"){kind="lift";color="#1b2420";air=!!tg.aerialway;label=(tg.name?tg.name+" · ":"")+(LIFT_NAME[tg.aerialway||"funicular"]||"Lift")}
     else continue;
     let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9; pts.forEach(p=>{bx0=Math.min(bx0,p[0]);bx1=Math.max(bx1,p[0]);by0=Math.min(by0,p[1]);by1=Math.max(by1,p[1])});
