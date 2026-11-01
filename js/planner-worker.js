@@ -125,9 +125,17 @@ function astarSki(p,I){
   const wy=ways?new Uint8Array(ways):null;
   if(wy)for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(ways[k]!==9)continue;
     for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!wy[m])wy[m]=9}}
+  // usable in winter: pistes, ski tour lines, forest roads and easy paths (T1 to T3). Summer paths are what
+  // ski tourers follow through forest and mountain pine (reference track Nordkette: 60 to 90 % on paths
+  // between 1200 and 1700 m). go: 2 on the way, 1 next to it (lines are mapped as centre lines)
+  const use=v=>v>=7||(v>=1&&v<=3), go=new Uint8Array(n);
+  if(wy){for(let k=0;k<n;k++)if(use(wy[k]))go[k]=2;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x; if(go[k]!==2)continue;
+      for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const xx=x+i,yy=y+j; if(xx<0||yy<0||xx>=w||yy>=h)continue; const m=yy*w+xx; if(!go[m])go[m]=1}}}
   for(let k=0;k<n;k++){const wv=wy?wy[k]:0, t=dens[k];let f=t<35?0:t<65?(t-35)/30*1.2:1.2+(t-65)/35*4;
-    if(wv>=8)f=-0.45; else if(wv===7)f=-0.4; fac[k]=1+Math.max(-0.45,f)}
-  T.wy=wy;
+    if(wv>=8)f=-0.45; else if(wv===7)f=-0.4; else if(go[k]===2)f=-0.35; else if(go[k]===1)f=Math.min(f,0)-0.15;
+    fac[k]=1+Math.max(-0.45,f)}
+  T.wy=wy; T.go=go;
   const nx=(w+1)>>1, ny=(h+1)>>1, NN=nx*ny, D=17;
   const D16=[[2,0],[4,2],[2,2],[2,4],[0,2],[-2,4],[-2,2],[-4,2],[-2,0],[-4,-2],[-2,-2],[-2,-4],[0,-2],[2,-4],[2,-2],[4,-2]];
   const ANG=D16.map(([x,y])=>Math.atan2(y,x));
@@ -151,7 +159,7 @@ function astarSki(p,I){
     if(corr){
       // corridor: where to go up, not yet how. Climbing steeper than the skin track angle costs the length of
       // the zigzags it needs (dz / tan(skin angle)) plus kick turns; ground too steep to zigzag on is avoided.
-      const sm=Math.max(slope[m],slope[mid]), onWay=wy&&wy[m]>=7&&wy[c]>=7;
+      const sm=Math.max(slope[m],slope[mid]), onWay=(go[m]||go[mid])&&(go[c]||go[mid]);
       // climbing a steep slope is hard work even in zigzags: short legs, many kick turns, slipping skins.
       // Real tracks take the gentler ground next to it when there is some (from about 28°, strongly from 33°).
       const stp=dz>0?1+(Math.min(37,Math.max(27,sm))-27)**2/36:1;
@@ -171,7 +179,7 @@ function astarSki(p,I){
       // zigzags need room: in a gully narrower than ~20 m between steep walls kick turns get very short and awkward
       if(dz>0&&dz/d>tanS){const fr=Math.min(free[m],free[mid]); if(fr<2)eff*=1+(2-fr)*0.6}
       // + a little for the ground covered, so the corridor runs up the slope and the zigzags are added later
-      let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.02)+kicks)*eff;
+      let b=(dEff*0.015+d*0.012+(dz>0?dz*0.15:-dz*0.12)+kicks)*eff;   // going down on skins only to climb again is avoided
       if(slope[m]>50||slope[mid]>50)b*=8;
       b*=(fac[c]+fac[mid]+fac[m])/3;
       const hz=(I[c]+I[mid]+I[m])/3; return b+dEff*0.015*p.weight*30*hz*hz*wall}
@@ -218,13 +226,51 @@ function zAt(x,y){const {w,h,z}=T;x=Math.max(0,Math.min(w-1.001,x));y=Math.max(0
 const cellAt=(x,y)=>Math.min(T.h-1,Math.max(0,Math.round(y)))*T.w+Math.min(T.w-1,Math.max(0,Math.round(x)));
 function gradAt(x,y){const c=T.cs[Math.min(T.h-1,Math.max(0,Math.round(y)))];
   return [(zAt(x+1,y)-zAt(x-1,y))/(2*c),(zAt(x,y+1)-zAt(x,y-1))/(2*c),c]}
+// Where the corridor runs along a piste, ski tour line, forest road or easy path, lay the track exactly on it:
+// the 20 m lattice cannot follow the tight hairpins of a path, and a corridor that cuts them looks steep,
+// so the skin track would add zigzags of its own beside the path. Returns cells plus the set of snapped ones.
+function snapToWays(axis){
+  const {w,h,go}=T; if(!go||!go.some(v=>v))return {cells:axis,on:new Set()};
+  // runs of corridor points (every ~20 to 40 m) on or next to a way; elsewhere the corridor stays as it is
+  const C=axis, out=[], on=new Set(); let i=0;
+  while(i<C.length){
+    if(!go[C[i]]){out.push(C[i]);i++;continue}
+    let j=i; while(j<C.length-1&&go[C[j+1]])j++;
+    if(j-i<2){for(let q=i;q<=j;q++)out.push(C[q]); i=j+1; continue}          // short touch of a way: keep the corridor
+    // shortest way along the mapped line between the two ends (cells on the line cheap, next to it dearer)
+    const a=C[i], b=C[j], ax=a%w, ay=(a-ax)/w, bx=b%w, by=(b-bx)/w, pad=25;
+    const x0=Math.max(0,Math.min(ax,bx)-pad), x1=Math.min(w-1,Math.max(ax,bx)+pad), y0=Math.max(0,Math.min(ay,by)-pad), y1=Math.min(h-1,Math.max(ay,by)+pad);
+    const BW=x1-x0+1, BH=y1-y0+1, dist=new Float32Array(BW*BH).fill(Infinity), prev=new Int32Array(BW*BH).fill(-1), q=[];
+    const L=(k)=>{const x=k%w,y=(k-x)/w;return (y-y0)*BW+(x-x0)};
+    dist[L(a)]=0; q.push([0,a]);
+    while(q.length){let mi=0;for(let r=1;r<q.length;r++)if(q[r][0]<q[mi][0])mi=r; const [dd,u]=q.splice(mi,1)[0]; if(dd>dist[L(u)])continue; if(u===b)break;
+      const ux=u%w, uy=(u-ux)/w;
+      for(let jy=-1;jy<=1;jy++)for(let jx=-1;jx<=1;jx++){if(!jx&&!jy)continue; const vx=ux+jx, vy=uy+jy; if(vx<x0||vx>x1||vy<y0||vy>y1)continue;
+        const v=vy*w+vx; if(!go[v])continue; const nd=dd+Math.hypot(jx,jy)*(go[v]===2?1:2.5);
+        if(nd<dist[L(v)]){dist[L(v)]=nd;prev[L(v)]=u;q.push([nd,v])}}}
+    let lenC=0; for(let q=i+1;q<=j;q++){const p0=C[q-1],p1=C[q];lenC+=Math.hypot(p1%w-p0%w,(p1-p1%w)/w-(p0-p0%w)/w)}
+    let seg=null;
+    if(dist[L(b)]<Infinity&&dist[L(b)]<lenC*2+4){
+      seg=[]; for(let u=b;u!==-1;u=u===a?-1:prev[L(u)])seg.push(u); seg.reverse();
+      // no detours down the mountain: the way may not lose clearly more height than the corridor does
+      const drop=cs=>{let d=0,lo=T.z[cs[0]];for(const k of cs){const z=T.z[k];if(z>lo)lo=z;else d=Math.max(d,lo-z)}return d};
+      if(drop(seg)>drop(C.slice(i,j+1))+8)seg=null;
+    }
+    if(seg)for(const k of seg){on.add(out.length);out.push(k)}
+    else for(let q2=i;q2<=j;q2++)out.push(C[q2]);
+    i=j+1;
+  }
+  return {cells:out,on};
+}
 function skinTrack(axis,p,I){
   const {w,h,slope,dens}=T, skin=(p.skin||12)*Math.PI/180;
-  const BOOT=p.boot||45, wy=T.wy;
+  const BOOT=p.boot||45, go=T.go;
   const ok=(x,y)=>{if(x<1||y<1||x>w-2||y>h-2)return false;const k=cellAt(x,y);return slope[k]<BOOT+1.5&&dens[k]<75};   // the corridor already weighed the avalanche terrain; inside it the track zigzags up even steep gullies (Karrinne)
   // smooth and resample the corridor every cell (~10 m)
-  let A=axis.map(k=>[k%w,(k-k%w)/w]);
-  for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
+  const snap=snapToWays(axis), onW=snap.on;
+  let A=snap.cells.map(k=>[k%w,(k-k%w)/w]);
+  // smooth the lattice steps, but not where the track lies on a way (keeps its hairpins)
+  for(let r=0;r<3;r++)A=A.map((q,i)=>i===0||i===A.length-1||onW.has(i)?q:[(A[i-1][0]+2*q[0]+A[i+1][0])/4,(A[i-1][1]+2*q[1]+A[i+1][1])/4]);
   const R=[A[0]]; for(let i=1;i<A.length;i++){const a=R[R.length-1],b=A[i],d=Math.hypot(b[0]-a[0],b[1]-a[1]);
     if(d<1)continue; const n=Math.floor(d); for(let k=1;k<=n;k++)R.push([a[0]+(b[0]-a[0])*k/d,a[1]+(b[1]-a[1])*k/d])}
   const last=A[A.length-1]; if(Math.hypot(last[0]-R[R.length-1][0],last[1]-R[R.length-1][1])>0.3)R.push(last);
@@ -232,7 +278,7 @@ function skinTrack(axis,p,I){
   for(let i=1;i<n;i++)S.push(S[i-1]+Math.hypot(R[i][0]-R[i-1][0],R[i][1]-R[i-1][1])*T.cs[Math.round(R[i][1])]);
   // steep parts: climbing grade over ~40 m above the skin angle (+3°)
   const steep=new Uint8Array(n), lim=Math.tan(skin+3*Math.PI/180), limW=Math.tan(23*Math.PI/180);
-  const onWay=i=>wy&&wy[cellAt(R[i][0],R[i][1])]>=7;
+  const onWay=i=>go&&go[cellAt(R[i][0],R[i][1])]>0;
   for(let i=0;i<n;i++){let j=i;while(j<n-1&&S[j]-S[i]<40)j++; let wc=0; for(let k=i;k<=j;k++)if(onWay(k))wc++;
     const L=wc>(j-i+1)/2?limW:lim;                        // mostly on a piste or forest road: straight up to ~20°
     if(j>i&&(Z[j]-Z[i])/(S[j]-S[i])>L)for(let k=i;k<=j;k++)steep[k]=1}
@@ -275,7 +321,7 @@ function skinTrack(axis,p,I){
         const off=(P[0]-R[k][0])*nrm[0]+(P[1]-R[k][1])*nrm[1];
         if(off*side>=lim2)break;                            // other side of the corridor reached: kick turn
         if(zAt(P[0],P[1])>=zEnd-2||k>=e)break;
-        if(len*c>300)break;                                  // very wide open slope: legs of at most ~300 m
+        if(len*c>150)break;                                  // very wide open slope: legs of at most ~150 m
       }
       if(moved)out.push(P.slice());
       legs++;
