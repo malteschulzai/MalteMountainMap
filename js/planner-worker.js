@@ -346,6 +346,12 @@ onmessage=e=>{
     if(d.prep){prep(d);postMessage({ready:true});return}
     if(!T)throw new Error("Gelände fehlt");
     const I=d.mode==="hike"?new Float32Array(T.n):hazard(d);
+    // pistes are compacted and secured against avalanches while in operation: much less exposure there.
+    // Without this the shortest line through open terrain always beat a winding piste.
+    if(d.mode!=="hike"&&d.ways){const {w,h}=T, wy=d.ways, low=new Uint8Array(T.n);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(wy[y*w+x]!==9)continue;
+        for(let j=-2;j<=2;j++)for(let i=-2;i<=2;i++){const xx=x+i,yy=y+j; if(xx>=0&&yy>=0&&xx<w&&yy<h)low[yy*w+xx]=1}}
+      for(let k=0;k<T.n;k++)if(low[k])I[k]*=0.3}
     if(d.mode==="hike"){
       const path=astar(d,I); if(!path){postMessage({err:"Keine Verbindung gefunden."});return}
       postMessage({pts:path.map(k=>{const x=k%T.w,y=(k-x)/T.w;return [x*2+1,y*2+1,I[k],T.slope[k]]})}); return}
