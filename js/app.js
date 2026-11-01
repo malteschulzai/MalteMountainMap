@@ -2706,15 +2706,68 @@ function updateCompass(){
 // ---------- Places: search and loading another area of Tirol ----------
 function goTo(lon,lat,name){saveState();const [sl,sb]=snap(lon,lat);location.href="./?at="+sl+","+sb+"&t="+lon.toFixed(5)+","+lat.toFixed(5)+(name?"&n="+encodeURIComponent(name):"")}
 // region centres sit on a ~2.3 km grid
-const snap=(lon,lat)=>[+(Math.round(lon/0.03)*0.03).toFixed(2),+(Math.round(lat/0.02)*0.02).toFixed(2)];
+const snapFine=(lon,lat)=>[+(Math.round(lon/0.03)*0.03).toFixed(2),+(Math.round(lat/0.02)*0.02).toFixed(2)];
+// prebuilt areas (served with the app, load in seconds) win when the place sits well inside one
+function snap(lon,lat){
+  const P=window.MMM_preList;
+  if(P&&P.length){const c=Math.cos(lat*Math.PI/180); let best=null, bd=0.62;
+    for(const p of P){const d=Math.max(Math.abs(p[0]-lon)*111.32*c/5,Math.abs(p[1]-lat)*111.32/3.75); if(d<bd){bd=d;best=p}}
+    if(best)return [best[0],best[1]]}
+  return snapFine(lon,lat);
+}
 const inArea=(lon,lat)=>lon>5.0&&lon<16.9&&lat>43.5&&lat<48.5;
 const prefetched=new Map();
 function prefetch(lon,lat,onBytes){const k=lon+","+lat; if(!prefetched.has(k))prefetched.set(k,window.MMM_prefetchRegion(lon,lat,onBytes).catch(e=>({ok:false,err:e.message}))); return prefetched.get(k)}
 let searchTimer=null, searchSeq=0;
-async function runSearch(q){
+// own place search: names of peaks, huts, saddles, lift stations and places from the prepared OSM files
+// (osm/v1/names/<letter>.json), so it answers while typing and needs no outside service
+const NAME_TYPE={c:"Stadt",t:"Ort",v:"Dorf",h:"Weiler",p:"Gipfel",s:"Joch/Scharte",u:"Hütte",l:"Liftstation",r:"Gebirgsgruppe"};
+const NAME_RANK={c:0,t:1,p:2,u:3,v:4,r:5,s:6,l:7,h:8};
+const nameShards=new Map();
+const normName=s=>s.toLowerCase().replace(/ß/g,"ss").normalize("NFD").replace(/[̀-ͯ]/g,"");
+const nameWords=s=>normName(s).split(/[^a-z0-9]+/).filter(Boolean);
+function nameShard(c){const k=/[a-z0-9]/.test(c)?c:"_";
+  if(!nameShards.has(k))nameShards.set(k,fetch(`osm/v1/names/${k}.json`).then(r=>r.ok?r.json():[]).catch(()=>{nameShards.delete(k);return []}));
+  return nameShards.get(k)}
+function viewCentre(){try{const [gx,gy]=targetGrid();return [xToLon(gx),yToLat(gy)]}catch(e){return [11.4,47.27]}}
+async function localSearch(q){
+  const qw=nameWords(q), qn=qw.join(" "); if(!qw.length)return [];
+  const lead=qw.find(w=>w.length>=2)||qw[0], list=await nameShard(lead[0]);
+  const [vl,vb]=viewCentre(), cl=Math.cos(vb*Math.PI/180), hits=[];
+  for(const e of list){
+    const w=nameWords(e[0]), n=w.join(" ");
+    let m=n===qn?0:n.startsWith(qn)?1:qw.every(a=>w.some(b=>b.startsWith(a)))?2:n.includes(qn)?3:-1;
+    if(m<0)continue;
+    const km=Math.hypot((e[2]-vl)*cl,e[3]-vb)*111.32;
+    hits.push([m*1000+NAME_RANK[e[1]]*25+Math.min(km,400)/2,e]);
+  }
+  hits.sort((a,b)=>a[0]-b[0]);
+  return hits.slice(0,10).map(h=>h[1]);
+}
+function showResults(out,list,q){
+  out.innerHTML="";
+  list.forEach(e=>{const b=document.createElement("button");b.className="result";
+    const bits=[NAME_TYPE[e[1]]||""]; if(e[4])bits.push(e[4]+" m"); if(e[5])bits.push("bei "+e[5]);
+    b.innerHTML=`<b>${escapeHtml(e[0])}</b><span>${escapeHtml(bits.join(" · "))}</span>`;
+    b.onclick=()=>goTo(e[2],e[3],e[0]); out.appendChild(b)});
+  const more=document.createElement("button"); more.className="result more";
+  more.innerHTML=`<span>${list.length?"Nicht dabei? ":""}Mit OpenStreetMap Nominatim suchen</span>`;
+  more.onclick=()=>nominatimSearch(q); out.appendChild(more);
+}
+let lastSearch=["",0];
+async function runSearch(q,typing){
+  if(!typing){if(lastSearch[0]===q&&Date.now()-lastSearch[1]<600)return; lastSearch=[q,Date.now()]}
   const out=$("searchResults"), my=++searchSeq;
   if(q.trim().length<2){out.innerHTML="";out.hidden=true;return}
-  out.hidden=false; openPanel(null); out.innerHTML='<p class="hint">Suche …</p>';
+  out.hidden=false; if(!typing)openPanel(null);
+  let list=[]; try{list=await localSearch(q)}catch(e){}
+  if(my!==searchSeq)return;
+  if(list.length||typing){showResults(out,list,q);return}
+  nominatimSearch(q);
+}
+async function nominatimSearch(q){
+  const out=$("searchResults"), my=++searchSeq;
+  out.hidden=false; out.innerHTML='<p class="hint">Suche …</p>';
   try{
     const vb="5.0,48.4,16.9,43.6";
     const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=de&bounded=1&viewbox="+vb+"&q="+encodeURIComponent(q));
@@ -2727,9 +2780,10 @@ async function runSearch(q){
       b.onclick=()=>goTo(+p.lon,+p.lat,nm); out.appendChild(b)});
   }catch(e){out.innerHTML='<p class="hint">Suche gerade nicht erreichbar. Prüfe die Verbindung.</p>'}
 }
-// Nominatim usage policy forbids search-as-you-type, so we only search on Enter
-$("search").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();runSearch(e.target.value)}});
-$("search").addEventListener("search",e=>runSearch(e.target.value));
+// the own index answers while typing; Nominatim (usage policy: no search-as-you-type) only on request
+$("search").addEventListener("input",e=>{clearTimeout(searchTimer);const v=e.target.value;searchTimer=setTimeout(()=>runSearch(v,true),180)});
+$("search").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(searchTimer);runSearch(e.target.value)}});
+$("search").addEventListener("search",e=>{clearTimeout(searchTimer);runSearch(e.target.value)});
 $("goNordkette").hidden=!REG; $("goNordkette").onclick=()=>{location.href="./"};
 // offer to load the area in the middle of the screen once it is far from the loaded area
 // panning towards the edge loads the next area automatically: data is fetched in the background,

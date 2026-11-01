@@ -257,6 +257,24 @@ async function gz(u8,pack){
   const st=new Blob([u8]).stream().pipeThrough(pack?new CompressionStream("gzip"):new DecompressionStream("gzip"));
   return new Uint8Array(await new Response(st).arrayBuffer());
 }
+// heights as differences to the neighbours (much smaller after gzip): used for the prebuilt areas
+function predictU16(a,w,h){const p=new Int16Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x;p[k]=y===0?(x===0?a[k]:a[k]-a[k-1]):(x===0?a[k]-a[k-w]:a[k]-a[k-1]-a[k-w]+a[k-w-1])}
+  return new Uint16Array(p.buffer)}
+function unpredictU16(p16,w,h){const p=new Int16Array(p16.buffer,p16.byteOffset,w*h), a=new Uint16Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x;a[k]=y===0?(x===0?p[k]:p[k]+a[k-1]):(x===0?p[k]+a[k-w]:p[k]+a[k-1]+a[k-w]-a[k-w-1])}
+  return a}
+async function packBuilt(r,compact){
+  const dm=compact?["dmp",predictU16(r.dm,r.meta.grid.W,r.meta.grid.H)]:["dm",r.dm];
+  const parts=[dm,["veg",r.veg],["trees",r.trees],["forest",r.forest],["ctx",r.ctx]].filter(p=>p[1]);
+  const head=new TextEncoder().encode(JSON.stringify({meta:r.meta,urls:compact?[]:r.urls,parts:parts.map(p=>[p[0],p[1] instanceof Uint16Array?"u16":"u8",p[1].byteLength])}));
+  const pad=o=>o+((8-o%8)%8);
+  let total=pad(4+head.length); parts.forEach(p=>total=pad(total+p[1].byteLength));
+  const out=new Uint8Array(total), dv=new DataView(out.buffer); dv.setUint32(0,head.length,true); out.set(head,4);
+  let o=pad(4+head.length);
+  for(const [,a] of parts){out.set(new Uint8Array(a.buffer,a.byteOffset,a.byteLength),o); o=pad(o+a.byteLength)}
+  return gz(out,true);
+}
 async function storeBuilt(lon,lat,r){
   try{
     const parts=[["dm",r.dm],["veg",r.veg],["trees",r.trees],["forest",r.forest],["ctx",r.ctx]].filter(p=>p[1]);
@@ -280,6 +298,7 @@ async function loadBuilt(lon,lat){
     const hl=dv.getUint32(0,true), head=JSON.parse(new TextDecoder().decode(u.subarray(4,4+hl)));
     let o=pad(4+hl); const r={meta:head.meta,urls:head.urls,dm:null,veg:null,trees:null,forest:null,ctx:null};
     for(const [name,type,len] of head.parts){const b=u.buffer.slice(u.byteOffset+o,u.byteOffset+o+len); r[name]=type==="u16"?new Uint16Array(b):new Uint8Array(b); o=pad(o+len)}
+    if(r.dmp){r.dm=unpredictU16(r.dmp,r.meta.grid.W,r.meta.grid.H); delete r.dmp}
     return r;
   }catch(e){console.warn("Bereich lesen",e);return null}
 }
@@ -318,12 +337,37 @@ async function build(lon,lat,name,sayFn){
     catch(e){if(e.message!=="worker")throw e}}
   const r=await buildRegion(lon,lat,name,sayFn); await storeBuilt(lon,lat,r); return r;
 }
+// areas built in advance by a GitHub workflow (tools/prebuild.mjs), served next to the app
+const PRE="regions/"+BUILD_V+"/";
+let preIdx=null;
+function prebuiltIndex(){
+  if(!preIdx)preIdx=fetch(PRE+"index.json",{cache:"no-cache"}).then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{
+    const keys=j&&Array.isArray(j.keys)?j.keys:[];
+    // the app picks these centres when a place lies well inside one of them
+    window.MMM_preList=keys.map(k=>k.split(",").map(Number));
+    return new Set(keys)});
+  return preIdx;
+}
+window.MMM_prebuiltIndex=prebuiltIndex;
+prebuiltIndex();
+async function loadPrebuilt(lon,lat,sayFn){
+  const k=(+lon).toFixed(2)+","+(+lat).toFixed(2);
+  if(!(await prebuiltIndex()).has(k))return null;
+  try{sayFn&&sayFn("Gebiet wird geladen …");
+    const r=await fetch(PRE+k+".bin"); if(!r.ok)return null;
+    const buf=await r.arrayBuffer();
+    await (await caches.open(BUILT)).put(builtKey(lon,lat),new Response(buf));
+    return await loadBuilt(lon,lat);
+  }catch(e){console.warn("vorgebautes Gebiet",e);return null}
+}
 const pending=new Map();
 function ensureBuilt(lon,lat,name,sayFn){
   const k=(+lon).toFixed(2)+","+(+lat).toFixed(2);
-  if(!pending.has(k))pending.set(k,(async()=>{const r=await loadBuilt(lon,lat); if(r)return r; return build(lon,lat,name,sayFn)})().finally(()=>setTimeout(()=>pending.delete(k),0)));
+  if(!pending.has(k))pending.set(k,(async()=>{const r=await loadBuilt(lon,lat)||await loadPrebuilt(lon,lat,sayFn); if(r)return r; return build(lon,lat,name,sayFn)})().finally(()=>setTimeout(()=>pending.delete(k),0)));
   return pending.get(k);
 }
+// for the build workflow: build one area and return the compact pack
+window.MMM_buildPack=async(lon,lat)=>{const r=await build(lon,lat,"",()=>{}); return packBuilt(r,true)};
 // background: download and build an area, so switching to it is quick
 window.MMM_prefetchRegion=async(lon,lat,onProgress)=>{
   try{await ensureBuilt(lon,lat,"",m=>{const n=/(\d+) %/.exec(m||"");if(onProgress&&n)onProgress(+n[1])}); return {ok:true,err:""}}

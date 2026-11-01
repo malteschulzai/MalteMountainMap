@@ -1,5 +1,5 @@
 name: Seite veröffentlichen
-# Publishes the app together with the prepared OSM files (release asset "osm-data").
+# Publishes the app together with the prepared OSM files (release asset "osm-data") and the prebuilt areas ("regions").
 # Needs Settings > Pages > Source: "GitHub Actions".
 on:
   push:
@@ -27,6 +27,13 @@ jobs:
           mkdir -p osm
           if gh release download osm-data -p osm-data.tar.gz -D /tmp; then tar -xzf /tmp/osm-data.tar.gz -C osm && du -sh osm; else echo "noch keine OSM-Daten"; fi
           rm -rf tools
+      - name: Vorgebaute Gebiete dazulegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p regions
+          if gh release download regions -p regions.tar -D /tmp; then tar -xf /tmp/regions.tar -C regions && rm /tmp/regions.tar && du -sh regions && ls regions/b2 | wc -l; else echo "noch keine Gebiete"; fi
+          du -sh .
       - name: Code verkleinern
         run: |
           for f in js/*.js sw.js; do npx -y terser@5.31.0 "$f" -c -m --comments false -o "$f.min" && mv "$f.min" "$f"; done

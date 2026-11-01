@@ -22,7 +22,7 @@ jobs:
         run: |
           osmium tags-filter alps.osm.pbf \
             n/natural=peak,saddle n/tourism=alpine_hut,wilderness_hut n/aerialway=station \
-            n/place=city,town nw/natural=mountain_range \
+            n/place=city,town,village,hamlet nw/natural=mountain_range \
             w/piste:type=downhill,skitour w/aerialway w/railway=funicular \
             w/highway=path,footway,bridleway,steps,track \
             -o filtered.osm.pbf --overwrite

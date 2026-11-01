@@ -12,7 +12,7 @@ Compact format, expanded in the app into Overpass-like elements:
    "w": [[id, {tags}, [lon0*1e5, lat0*1e5, dlon, dlat, ...]], ...]}
 Data: (c) OpenStreetMap contributors, ODbL.
 """
-import json, math, os, sys, time
+import json, math, os, re, sys, time, unicodedata
 from collections import defaultdict
 
 TL, TA = 0.1, 0.08
@@ -21,6 +21,24 @@ KEEP = {"name", "ele", "natural", "tourism", "aerialway", "piste:type", "piste:d
 # coarse names for the overview map: cities, towns and mountain ranges -> v1/labels.json
 LIFTS = {"cable_car", "gondola", "chair_lift", "drag_lift", "t-bar", "j-bar", "platter",
          "rope_tow", "magic_carpet", "mixed_lift"}
+
+# own place search -> v1/names/<c>.json, one file per first letter of each word of the name
+NAME_T = {"city": "c", "town": "t", "village": "v", "hamlet": "h"}
+
+def norm(s):
+    s = unicodedata.normalize("NFD", s.lower().replace("ß", "ss"))
+    return "".join(ch for ch in s if not unicodedata.combining(ch))
+
+def words(s):
+    return [w for w in re.split(r"[^a-z0-9]+", norm(s)) if w]
+
+def shard(w):
+    c = w[0]
+    return c if ("a" <= c <= "z" or "0" <= c <= "9") else "_"
+
+def ele_of(t):
+    try: return int(round(float(str(t.get("ele", "")).replace(",", ".").split()[0])))
+    except Exception: return 0
 
 def kind_of(t, is_node):
     if is_node:
@@ -43,7 +61,7 @@ def main():
     out = sys.argv[1]
     tiles = {"main": defaultdict(lambda: {"n": [], "w": []}), "tracks": defaultdict(lambda: {"n": [], "w": []})}
     n_in = n_out = 0
-    places, ranges = [], {}
+    places, ranges, names = [], {}, []
     t0 = time.time()
     for line in sys.stdin:
         line = line.strip().lstrip("\x1e")
@@ -56,6 +74,14 @@ def main():
         typ = p.get("@type") or ("node" if g.get("type") == "Point" else "way")
         oid = p.get("@id")
         nm = p.get("name:de") or p.get("name")
+        if nm and g.get("type") == "Point":
+            lon, lat = g["coordinates"][:2]
+            t = NAME_T.get(p.get("place")) or ("p" if p.get("natural") == "peak" else "s" if p.get("natural") == "saddle"
+                 else "u" if p.get("tourism") in ("alpine_hut", "wilderness_hut") else "l" if p.get("aerialway") == "station" else None)
+            if t:
+                names.append([nm, t, round(lon, 5), round(lat, 5), ele_of(p) if t in "psu" else 0])
+        if nm and p.get("place") in ("village", "hamlet"):
+            continue
         if nm and p.get("place") in ("city", "town") and g.get("type") == "Point":
             try: pop = int(str(p.get("population", "0")).replace(".", "").replace(",", "").split()[0])
             except Exception: pop = 0
@@ -65,7 +91,9 @@ def main():
         if nm and p.get("natural") == "mountain_range":
             cs = g.get("coordinates") or []
             c = cs if g.get("type") == "Point" else (cs[len(cs) // 2] if cs else None)
-            if c and nm not in ranges: ranges[nm] = [round(c[0], 4), round(c[1], 4), nm]
+            if c and nm not in ranges:
+                ranges[nm] = [round(c[0], 4), round(c[1], 4), nm]
+                names.append([nm, "r", round(c[0], 5), round(c[1], 5), 0])
             continue
         tags = {k: v for k, v in p.items() if k in KEEP}
         k = kind_of(tags, typ == "node")
@@ -105,6 +133,38 @@ def main():
     with open(os.path.join(out, "v1", "labels.json"), "w", encoding="utf-8") as fh:
         json.dump({"places": places, "ranges": list(ranges.values())}, fh, separators=(",", ":"), ensure_ascii=False)
     print(f"labels: {len(places)} places, {len(ranges)} ranges", flush=True)
+    # search index: each entry gets the nearest town (or village) as a hint where it is
+    grid = defaultdict(list)
+    for e in names:
+        if e[1] in "ctv":
+            grid[(math.floor(e[2] / 0.2), math.floor(e[3] / 0.2))].append(e)
+    def near(e):
+        if e[1] in "ctr":
+            return ""
+        best, bd = "", 1e9
+        cl = math.cos(math.radians(e[3]))
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for q in grid.get((math.floor(e[2] / 0.2) + di, math.floor(e[3] / 0.2) + dj), ()):
+                    if q is e: continue
+                    w = 1.0 if q[1] in "ct" else 2.5     # prefer towns over villages
+                    d = math.hypot((q[2] - e[2]) * cl, q[3] - e[3]) * w
+                    if d < bd: bd, best = d, q[0]
+        return best
+    shards, seen = defaultdict(list), set()
+    for e in names:
+        k = (e[0], e[1], round(e[2], 2), round(e[3], 2))
+        if k in seen: continue
+        seen.add(k)
+        rec = e + [near(e)]
+        for c in sorted({shard(w) for w in words(e[0]) if len(w) >= 2 or w.isdigit()}):
+            shards[c].append(rec)
+    d = os.path.join(out, "v1", "names")
+    os.makedirs(d, exist_ok=True)
+    for c, v in shards.items():
+        with open(os.path.join(d, c + ".json"), "w", encoding="utf-8") as fh:
+            json.dump(v, fh, separators=(",", ":"), ensure_ascii=False)
+    print(f"names: {len(seen)} entries in {len(shards)} files", flush=True)
     meta = {"v": 1, "built": time.strftime("%Y-%m-%d"), "tile": [TL, TA],
             "tiles": {k: sorted([f"{i}_{j}" for (i, j) in tt.keys()]) for k, tt in tiles.items()},
             "attribution": "© OpenStreetMap contributors (ODbL)"}

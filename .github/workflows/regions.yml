@@ -1,0 +1,61 @@
+name: Gebiete vorbauen
+# Builds map areas in advance (Tirol first, then other touring areas) with the app's own code in
+# headless Chromium, stores them as release asset "regions" and publishes the site again.
+# Areas already built are kept, so running it again only adds new ones until the size budget is reached.
+on:
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "Größe gesamt in MB"
+        default: "420"
+      minutes:
+        description: "Bauzeit in Minuten"
+        default: "300"
+      fresh:
+        description: "Alle Gebiete neu bauen (ja/nein)"
+        default: "nein"
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: regions
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Chromium
+        run: |
+          cd tools && npm init -y >/dev/null && npm i --no-audit --no-fund playwright@1.47.2
+          npx playwright install --with-deps chromium
+      - name: Bisherige Gebiete laden
+        if: ${{ inputs.fresh != 'ja' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out/b2
+          if gh release download regions -p regions.tar -D /tmp; then tar -xf /tmp/regions.tar -C out && rm /tmp/regions.tar; fi
+          ls out/b2 | wc -l; du -sh out
+      - name: Bauen
+        run: |
+          mkdir -p out/b2
+          node tools/prebuild.mjs out/b2 "${{ inputs.budget || '420' }}" "${{ inputs.minutes || '300' }}"
+          du -sh out/b2
+      - name: Als Release speichern
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -f out/b2/index.json || exit 0
+          tar -cf regions.tar -C out b2 && ls -la regions.tar
+          gh release view regions >/dev/null 2>&1 || gh release create regions --title "Vorgebaute Gebiete" --notes "Vorab berechnete Kartengebiete für Firstline Map. Gelände: Land Tirol (CC BY 4.0), Mapterhorn; Wald: Copernicus/EEA; OSM © OpenStreetMap-Mitwirkende."
+          gh release upload regions regions.tar --clobber
+      - name: Seite neu veröffentlichen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml || true

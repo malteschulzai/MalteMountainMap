@@ -12,6 +12,10 @@ Funktionen: Luftbild (basemap.at) auf 3D-Gelände mit Nachladen schärferer Kach
 
 Am Handy in Chrome öffnen und über das Menü installieren. Der Service Worker hält App und Daten vor, über „Offline speichern“ werden Luftbild und Schummerung der Nordkette auf dem Gerät gespeichert.
 
+## Vorgebaute Gebiete
+
+Der Workflow „Gebiete vorbauen“ (`.github/workflows/regions.yml`) rechnet Gebiete mit dem Code der App in Chromium vor, zuerst Tirol rund um bekannte Tourengebiete, dann Davos, Engadin, Zermatt und Chamonix. Die Gebiete liegen als Release `regions` und werden beim Veröffentlichen unter `regions/b2/` mit auf die Seite gelegt. Ein Gebiet mit ausreichend Abstand zum Rand wird dann in wenigen Sekunden geladen, alles andere wird wie bisher im Browser berechnet. Ein erneuter Lauf ergänzt nur fehlende Gebiete bis zur Größengrenze.
+
 ## Daten
 
 - Vegetation (Wald, Latschen): Oberflächenmodell minus Geländemodell vom Land Tirol (CC BY 4.0), auf 6 m zusammengefasst.
@@ -19,7 +23,7 @@ Am Handy in Chrome öffnen und über das Menü installieren. Der Service Worker 
 - Schummerung 50 cm (Gelände und Oberfläche): WMS Land Tirol.
 - Gipfel, Hütten, Pisten, Lifte und Wege mit SAC-Skala: © OpenStreetMap-Mitwirkende (ODbL), zur Laufzeit über Overpass.
 - Umgebung außerhalb des geladenen Bereichs: Mapzen Terrain Tiles (AWS Open Data).
-- Ortssuche: Nominatim (OpenStreetMap).
+- Ortssuche: eigener Index aus den aufbereiteten OSM-Daten (Gipfel, Hütten, Joche, Orte), Nominatim nur auf Wunsch.
 - Luftbild: [basemap.at](https://basemap.at) Orthofoto, CC BY 4.0, direkt als Kacheln geladen.
 - Geländemodell: Land Tirol, [Digitales Geländemodell Tirol](https://www.data.gv.at/katalog/dataset/0454f5f3-1d8c-464e-847d-541901eb021a), CC BY 4.0. Laserscan 50 cm, für die App auf 3 m Raster umgerechnet (Web Mercator, Höhen in Dezimetern, zeilenweise Prädiktor, gzip, Base64).
 
