@@ -55,8 +55,11 @@ console.log(`${order.length} Kandidaten`);
 const idxFile=path.join(out,"index.json");
 const idx=fs.existsSync(idxFile)?JSON.parse(fs.readFileSync(idxFile,"utf8")):{v:"b2",keys:[],sizes:{}};
 idx.sizes=idx.sizes||{};
-idx.keys=idx.keys.filter(k=>fs.existsSync(path.join(out,k+".bin")));
-let total=idx.keys.reduce((s,k)=>s+fs.statSync(path.join(out,k+".bin")).size,0);
+// areas listed in the index are kept: either the file is here, or it is already uploaded (REMOTE=1)
+const REMOTE=process.env.REMOTE==="1";
+idx.keys=idx.keys.filter(k=>REMOTE||fs.existsSync(path.join(out,k+".bin")));
+const sizeOf=k=>fs.existsSync(path.join(out,k+".bin"))?fs.statSync(path.join(out,k+".bin")).size:(idx.sizes[k]||3.3e6);
+let total=idx.keys.reduce((s,k)=>s+sizeOf(k),0);
 console.log(`vorhanden: ${idx.keys.length} Gebiete, ${(total/1e6).toFixed(1)} MB`);
 const save=()=>{idx.built=new Date().toISOString().slice(0,10);fs.writeFileSync(idxFile,JSON.stringify(idx))};
 

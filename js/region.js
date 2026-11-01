@@ -338,10 +338,12 @@ async function build(lon,lat,name,sayFn){
   const r=await buildRegion(lon,lat,name,sayFn); await storeBuilt(lon,lat,r); return r;
 }
 // areas built in advance by a GitHub workflow (tools/prebuild.mjs), served next to the app
-const PRE="regions/"+BUILD_V+"/";
-let preIdx=null;
+// first Cloudflare R2 (all of Tirol and more), else the copy published with the site
+const PRE_BASES=["https://pub-f6e66f80d8cf4bc2851ce63a42cee5f4.r2.dev/"+BUILD_V+"/","regions/"+BUILD_V+"/"];
+let PRE=PRE_BASES[0], preIdx=null;
+const getIdx=base=>fetch(base+"index.json",{cache:"no-cache"}).then(r=>r.ok?r.json():null).catch(()=>null);
 function prebuiltIndex(){
-  if(!preIdx)preIdx=fetch(PRE+"index.json",{cache:"no-cache"}).then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{
+  if(!preIdx)preIdx=(async()=>{for(const b of PRE_BASES){const j=await getIdx(b); if(j&&Array.isArray(j.keys)&&j.keys.length){PRE=b;return j}} return null})().then(j=>{
     const keys=j&&Array.isArray(j.keys)?j.keys:[];
     // the app picks these centres when a place lies well inside one of them
     window.MMM_preList=keys.map(k=>k.split(",").map(Number));
