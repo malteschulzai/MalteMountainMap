@@ -438,7 +438,10 @@ void main(){
     float clump=0.62*vnoise(vWorld.xz*11.0)+0.26*vnoise(vWorld.xz*32.0)+0.12*obj;
     sr*=1.0-smoothstep(2050.0,2250.0,vElev);
     float crownS=mix(sr*smoothstep(1.0-bury-0.07,1.0-bury+0.07,clump), sr*bury*0.8, smoothstep(28.0,70.0,length(vWorld-camPos)));
-    vec3 crownC=mix(vec3(.08,.14,.10)*(0.55+0.95*so), snowCol(so)*0.97, crownSnow*smoothstep(0.48,0.85,so));
+    // snow on the crowns: only partly, and less from afar. A snowy forest still reads dark from a distance
+    // (trunks, shaded sides, gaps), otherwise whole forests vanish on sunny slopes in the overview
+    float far=smoothstep(25.0,90.0,length(vWorld-camPos));
+    vec3 crownC=mix(vec3(.08,.14,.10)*(0.55+0.95*so), snowCol(so)*0.97, min(0.55,crownSnow)*smoothstep(0.48,0.85,so)*(1.0-0.7*far));
     if(hasForest>0.5) crownC=mix(crownC, vec3(.40,.36,.32)*(0.6+0.7*so), broad*0.8);   // leafless broadleaf (and larch-like) crowns
     vec3 shrubC=mix(vec3(.09,.16,.09)*(0.55+0.9*so), snowCol(so), 0.18);
     vec3 w=snowCol(isPatch>0.5?mix(sg,geoL,0.55):sg);
